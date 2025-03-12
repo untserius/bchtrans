@@ -43,5 +43,5 @@ public interface alertsService {
 
 	boolean chargingSummaryNotification(Map<String, Object> sessionObj, Map<String, Object> userObj, String sessionId);
 
-	void sendMeterValueViolationAlert(SessionImportedValues siv);
+
 }

@@ -123,68 +123,6 @@ public class EmailServiceImpl {
 		return true;
 	}
 
-	public boolean bchInternalAlertEmail(Map<String,Object> data,long resend,String sessionId) {
-		try {
-			FreeMarkerConfigurationFactoryBean bean = new FreeMarkerConfigurationFactoryBean();
-			bean.setTemplateLoaderPath("/templates/");
-			freemarker.template.Template template = bean.createConfiguration().getTemplate(String.valueOf(data.get("template_name")));
-			String html = FreeMarkerTemplateUtils.processTemplateIntoString(template, data.get("template_data"));
-			Thread emailThread = new Thread() {
-				public void run() {
-					JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
-					mailSender.setHost(String.valueOf(data.get("from_mail_host")));
-					mailSender.setPort(Integer.valueOf(String.valueOf(data.get("from_mail_port"))));
-					mailSender.setUsername(String.valueOf(data.get("from_mail_auth")));
-					mailSender.setPassword(String.valueOf(data.get("from_mail_password")));
-					Properties javaMailProperties = new Properties();
-//					javaMailProperties.put("mail.smtp.starttls.enable", "true");
-					javaMailProperties.put("mail.smtp.ssl.enable", "true");
-					javaMailProperties.put("mail.smtp.auth", "true");
-					javaMailProperties.put("mail.transport.protocol", String.valueOf(data.get("from_mail_protocol")));
-					javaMailProperties.put("mail.debug", "false");
-					mailSender.setJavaMailProperties(javaMailProperties);
-
-					MimeMessage mimeMessage = mailSender.createMimeMessage();
-
-					try {
-						MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED, StandardCharsets.UTF_8.name());
-						helper.addInline("logo.png", new ClassPathResource("evg.png"));
-						helper.setTo(String.valueOf(data.get("to_mail")));
-						helper.setText(html, true);
-						helper.setSubject(String.valueOf(data.get("subject")));
-						helper.setFrom(new InternetAddress(String.valueOf(data.get("from_mail"))));
-						if (!String.valueOf(String.valueOf(data.get("to_mail_cc"))).equalsIgnoreCase("") && !String.valueOf(String.valueOf(data.get("to_mail_cc"))).equalsIgnoreCase("null")) {
-							helper.setCc(String.valueOf(String.valueOf(data.get("to_mail_cc"))).split(","));
-						}
-						boolean pathValid = utils.isPathValid(String.valueOf(data.get("logo")));
-						MimeMultipart multipart = new MimeMultipart("related");
-						BodyPart messageBodyPart = new MimeBodyPart();
-						messageBodyPart.setContent(html, "text/html");
-						multipart.addBodyPart(messageBodyPart);
-						if (pathValid) {
-							messageBodyPart = new MimeBodyPart();
-							DataSource fds = new FileDataSource(String.valueOf(data.get("logo")));
-							messageBodyPart.setDataHandler(new DataHandler(fds));
-							messageBodyPart.setHeader("Content-ID", "<logo>");
-							multipart.addBodyPart(messageBodyPart);
-
-							mimeMessage.setContent(multipart);
-						}
-						mailSender.send(mimeMessage);
-						LOGGER.info("EmailServiceImpl.sendEmail() -mailTo [" + String.valueOf(data.get("to_mail")) + "] - Successfully Sent !.");
-					} catch (MessagingException e3) {
-						LOGGER.error("",e3);
-					}
-				}
-			};
-			emailThread.start();
-		} catch (Exception e) {
-			LOGGER.error("",e);
-			return false;
-		}
-		return true;
-	}
-
 	public void customerSupportMailService(MailForm mail) {
 		Map<String, Object> orgData = userService.getOrgData(1, "");
 		try {

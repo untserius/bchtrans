@@ -16,16 +16,7 @@ public class OCPPSettings extends BaseEntity{
 	private long time;
 	private double maximumRevenue;
 	private double maxkWh;
-	private double maxCapacityPer;
-
-	public double getMaxCapacityPer() {
-		return maxCapacityPer;
-	}
-
-	public void setMaxCapacityPer(double maxCapacityPer) {
-		this.maxCapacityPer = maxCapacityPer;
-	}
-
+	
 	public long getOrgId() {
 		return orgId;
 	}
@@ -82,20 +73,10 @@ public class OCPPSettings extends BaseEntity{
 	public void setMaxkWh(double maxkWh) {
 		this.maxkWh = maxkWh;
 	}
-
 	@Override
 	public String toString() {
-		return "OCPPSettings{" +
-				"orgId=" + orgId +
-				", supportEmail='" + supportEmail + '\'' +
-				", devEmails='" + devEmails + '\'' +
-				", ftpUrl='" + ftpUrl + '\'' +
-				", ftpDiagnosticsPath='" + ftpDiagnosticsPath + '\'' +
-				", idleBillCap=" + idleBillCap +
-				", time=" + time +
-				", maximumRevenue=" + maximumRevenue +
-				", maxkWh=" + maxkWh +
-				", maxCapacityPer=" + maxCapacityPer +
-				'}';
+		return "OCPPSettings [orgId=" + orgId + ", supportEmail=" + supportEmail + ", devEmails=" + devEmails
+				+ ", ftpUrl=" + ftpUrl + ", ftpDiagnosticsPath=" + ftpDiagnosticsPath + ", idleBillCap=" + idleBillCap
+				+ ", time=" + time + ", maximumRevenue=" + maximumRevenue + ", maxkWh=" + maxkWh + "]";
 	}
 }

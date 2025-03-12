@@ -28,10 +28,6 @@ public class AccountTransactions extends BaseEntity {
 	@Temporal(TemporalType.DATE)
 	@Column(name = "createTimeStamp", length = 10)
 	private Date createTimeStamp;
-	@Temporal(TemporalType.DATE)
-	@Column(name = "modified_date", length = 10)
-	private Date modifiedDate;
-	private String uid;
 	private String transactionType;
 	private double amtDebit;
 	private double amtCredit;
@@ -242,19 +238,13 @@ public class AccountTransactions extends BaseEntity {
 		this.tax3_pct = tax3_pct;
 	}
 
-	public Date getModifiedDate() {
-		return modifiedDate;
-	}
+	
 
-	public void setModifiedDate(Date modifiedDate) {
-		this.modifiedDate = modifiedDate;
-	}
+	
 
-	public String getUid() {
-		return uid;
-	}
+	
 
-	public void setUid(String uid) {
-		this.uid = uid;
-	}
+	
+
+	
 }

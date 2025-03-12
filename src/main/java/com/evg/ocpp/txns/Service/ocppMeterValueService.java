@@ -61,5 +61,4 @@ public interface ocppMeterValueService {
 
 	void insertNotificationTracker(SessionImportedValues siv);
 
-	boolean insertStopTransaction(StopTransaction stopTxn);
 }

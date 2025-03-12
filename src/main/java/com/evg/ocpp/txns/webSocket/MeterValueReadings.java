@@ -32,7 +32,7 @@ public class MeterValueReadings {
 	@Autowired
 	private ExecuteRepository executeRepository;
 	
-	public SessionImportedValues energyConsumptionCalc(SessionImportedValues siv) {
+	public SessionImportedValues energyConsumptionCalc(SessionImportedValues siv, OCPPStartTransaction startTxnObj) {
 		try {
 			logger.info(Thread.currentThread().getId()+"start value : "+siv.getTxnData().getMeterStart()+" , unit : "+siv.getEnergyActiveImportRegisterUnit()+" , curr value : "+siv.getEnergyActiveImportRegisterValue());
 			long meterValueCount=0;
@@ -87,38 +87,42 @@ public class MeterValueReadings {
 					siv.getTxnData().setkWhStatus("Updated");
 				}
 			}
-			siv.setActualEnergy(siv.getTotalKwUsed());
-
-			BigDecimal energyDelivered=siv.getTotalKwUsed();
-
-			BigDecimal duration=siv.getSessionDuration();
-
-			BigDecimal portCapacityForMin=new BigDecimal(siv.getStnObj().get("capacity").asText()).divide(new BigDecimal("60"),4,RoundingMode.HALF_UP);
-
+			BigDecimal totalKwh=siv.getTotalKwUsed();
+			BigDecimal energyDelivered=siv.getTotalKwUsed().subtract(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))));
+			BigDecimal duration=siv.getSessionDuration().subtract(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("sessionElapsedInMin"))));
+			BigDecimal portCapacityForMin=new BigDecimal(siv.getStnObj().get("portCapacity").asText()).divide(new BigDecimal("60"),4,RoundingMode.HALF_UP);
+			boolean flag=true;
 			if(energyDelivered.doubleValue()>0 && duration.doubleValue()>0 && portCapacityForMin.doubleValue()>0) {
-
 				BigDecimal portCapacity=portCapacityForMin.multiply(duration).setScale(4, RoundingMode.HALF_UP);
-
-				BigDecimal appr_portCapacity=portCapacity.add((portCapacity.multiply(new BigDecimal(siv.getTxnData().getMaxCapacityPer()))).divide(new BigDecimal("100"), 4,RoundingMode.HALF_UP)).setScale(4,RoundingMode.HALF_UP);
-
-				if(appr_portCapacity.doubleValue()>0 && energyDelivered.doubleValue()>=appr_portCapacity.doubleValue()) {
-
-					siv.setTotalKwUsed(portCapacity);
-					siv.setEnergyModify(true);
-//					siv.getTxnData().setEnergyModifyFlag(true);
-
-				}
-
+				BigDecimal appr_portCapacity=portCapacity.add((portCapacity.multiply(new BigDecimal("20"))).divide(new BigDecimal("100"), 4,RoundingMode.HALF_UP)).setScale(4,RoundingMode.HALF_UP);
+			    if(appr_portCapacity.doubleValue()>0 && energyDelivered.doubleValue()>=appr_portCapacity.doubleValue()) {
+			    	flag=false;
+			    	BigDecimal kwh=getkwhValue(siv,true,appr_portCapacity.doubleValue());
+			    	if(kwh.doubleValue()>0 && kwh.doubleValue()<=appr_portCapacity.doubleValue()) {
+			    		siv.setTotalKwUsed(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))).add(kwh).setScale(4,RoundingMode.HALF_UP));
+			    	}else {
+			    		siv.setTotalKwUsed(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))).setScale(4,RoundingMode.HALF_UP));
+			    	}
+			    }
+// TODO:Check calculation, if wrong add this comented line
+//				else {
+//					siv.setTotalKwUsed(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))).add(energyDelivered));
+//				}
+			}else if(energyDelivered.doubleValue()>=maxkWh || (energyDelivered.doubleValue()>0 && duration.doubleValue()<=0)) {
+				getkwhValue(siv,flag,0);
+				siv.setTotalKwUsed(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))));
+				flag=false;
 			}
-
+			getkwhValue(siv,flag,0);
+			
 			if(siv.getTotalKwUsed().doubleValue()<0) {
 				siv.setTotalKwUsed(new BigDecimal("0"));
 			}
 			
-			if(siv.getTotalKwUsed().doubleValue()<Double.parseDouble(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed")))) {
+			if(!startTxnObj.isOfflineFlag() && siv.getTotalKwUsed().doubleValue()<Double.parseDouble(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed")))) {
 				siv.setTotalKwUsed(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed"))));
 			}
-			if(siv.getSessionDuration().doubleValue()<Double.parseDouble(String.valueOf(siv.getPreviousSessionData().get("sessionElapsedInMin")))) {
+			if(!startTxnObj.isOfflineFlag() && siv.getSessionDuration().doubleValue()<Double.parseDouble(String.valueOf(siv.getPreviousSessionData().get("sessionElapsedInMin")))) {
 				siv.setSessionDuration(new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("sessionElapsedInMin"))));
 				siv.setMeterValueTimeStatmp(utils.stringToDate(String.valueOf(siv.getPreviousSessionData().get("endTimeStamp"))));
 			}

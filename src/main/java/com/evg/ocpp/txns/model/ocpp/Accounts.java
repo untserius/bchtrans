@@ -38,10 +38,6 @@ public class Accounts extends BaseEntity {
 	@Column(name = "creation_date", length = 10)
 	private Date creationDate;
 
-	@Temporal(TemporalType.DATE)
-	@Column(name = "modified_date", length = 10)
-	private Date modifiedDate;
-
 	@Column(name = "activeAccount", nullable = false)
 	private boolean activeAccount;
 
@@ -191,10 +187,6 @@ public class Accounts extends BaseEntity {
 	public void setCurrencySymbol(String currencySymbol) {
 		this.currencySymbol = currencySymbol;
 	}
-
-	public Date getModifiedDate() {return modifiedDate;}
-	public void setModifiedDate(Date modifiedDate) {this.modifiedDate = modifiedDate;}
-
 	@Override
 	public String toString() {
 		return "Accounts [accountName=" + accountName + ", oldRefId=" + oldRefId + ", creationDate=" + creationDate

@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.evg.ocpp.txns.Service.*;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.slf4j.Logger;
@@ -16,6 +15,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.evg.ocpp.txns.Service.StationService;
+import com.evg.ocpp.txns.Service.alertsService;
+import com.evg.ocpp.txns.Service.configService;
+import com.evg.ocpp.txns.Service.ocppUserService;
+import com.evg.ocpp.txns.Service.sessionDataService;
 import com.evg.ocpp.txns.config.EmailServiceImpl;
 import com.evg.ocpp.txns.dao.GeneralDao;
 import com.evg.ocpp.txns.forms.IdleCharging;
@@ -34,39 +38,39 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class alertsServiceImpl implements alertsService{
 	private final static Logger logger = LoggerFactory.getLogger(alertsServiceImpl.class);
-
+	
 	ObjectMapper objectMapper = new ObjectMapper();
-
+	
 	@Autowired
 	private smsIntegration smsIntegrationImpl;
-
+	
 	@Autowired
 	private EmailServiceImpl emailServiceImpl;
-
+	
 	@Autowired
 	private sessionDataService sessionDataService;
-
+	
 	@Autowired
 	private configService configService;
-
+	
 	@Autowired
 	private StationService stationService;
-
+	
 	@Autowired
 	private Utils utils;
-
+	
 	@Autowired
 	private GeneralDao<?, ?> generalDao;
-
+	
 	@Autowired
 	private ocppUserService ocppUserService;
-
+	
 	@Autowired
 	private PushNotification pushNotification;
-
+	
 	@Autowired
 	private ExecuteRepository executeRepository;
-
+	
 	@Override
 	public PreferredNotification preferredNotify(long userId) {
 		PreferredNotification pn = null;
@@ -77,7 +81,7 @@ public class alertsServiceImpl implements alertsService{
 		}
 		return pn;
 	}
-
+	
 	@Override
 	public String mailChargingSessionSummaryData(String sessionId,boolean idle) {
 		try {
@@ -109,7 +113,7 @@ public class alertsServiceImpl implements alertsService{
 		}
 		return "failed";
 	}
-
+	
 	@Override
 	public String notification(String sessionId,String notifyType) {
 		try {
@@ -144,7 +148,7 @@ public class alertsServiceImpl implements alertsService{
 		}
 		return "success";
 	}
-
+	
 	@Override
 	public boolean chargingSummaryNotification(Map<String,Object> sessionObj,Map<String,Object> userObj,String sessionId) {
 		try {
@@ -153,8 +157,8 @@ public class alertsServiceImpl implements alertsService{
 			map.put("type", "Charging Summary");
 			map.put("categoryIdentifier", "notification");
 			map.put("energyDelivered", String.valueOf(new BigDecimal(String.valueOf(sessionObj.get("totalkWh"))).setScale(4,RoundingMode.DOWN)));
-			map.put("finalCost", String.valueOf(new BigDecimal(String.valueOf(sessionObj.get("finalAmount"))).setScale(2,RoundingMode.DOWN)));
-			map.put("referNo", String.valueOf(sessionObj.get("stnRefNum")));
+			map.put("finalCost", String.valueOf(new BigDecimal(String.valueOf(sessionObj.get("finalAmount"))).setScale(2,RoundingMode.DOWN))); 
+			map.put("referNo", String.valueOf(sessionObj.get("stnRefNum"))); 
 			map.put("stationName", String.valueOf(sessionObj.get("stationName")));
 			map.put("duration", String.valueOf(sessionObj.get("sessionDuration")));
 			map.put("connectorId", String.valueOf(sessionObj.get("connector_id")));
@@ -163,32 +167,34 @@ public class alertsServiceImpl implements alertsService{
 			map.put("currencySymbol", String.valueOf(userObj.get("crncy_HexCode")));
 			map.put("uuid", String.valueOf(userObj.get("uuid")));
 			boolean flag=sendNotifications(Long.parseLong(String.valueOf(sessionObj.get("userId"))),"","Charging Session",String.valueOf(sessionObj.get("stnRefNum")),Long.parseLong(String.valueOf(userObj.get("orgId"))),sessionId,map,sessionId,1);
-			return flag;
+		    return flag;
 		}catch (Exception e) {
 			e.printStackTrace();
 		}
 		return false;
 	}
-
-
+	
+	
 	@Override
 	public void mailInActiveBilling(SessionImportedValues siv) {
-		try {
-			if(siv.isIdleBilling()) {
-				if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-					PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
-					if(pn != null && pn.isEmailIdleBilling()) {
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				if (siv.isIdleBilling()) {
+					if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+						PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
+						if (pn != null && pn.isEmailIdleBilling()) {
+							inActivityMail(siv);
+						}
+					} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
 						inActivityMail(siv);
 					}
-				}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
-					inActivityMail(siv);
 				}
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
 	}
-
+	
 	public boolean mail(Map<String, Object> sessionData,Map<String, Object> userObj,long resend) {
 		try {
 			Map<String, Object> stnObj = stationService.getStnObjByRefNosMap(String.valueOf(sessionData.get("stnRefNum")),Long.valueOf(String.valueOf(sessionData.get("connector_id"))));
@@ -217,43 +223,43 @@ public class alertsServiceImpl implements alertsService{
 			BigDecimal chargingCost=new BigDecimal("0.00");
 			if(tariff.size() > 0) {
 				JsonNode prices = objectMapper.readTree(String.valueOf(tariff.get(0).get("cost_info")));
-				if(prices.size() > 0) {
-					JsonNode standard = objectMapper.readTree(String.valueOf(prices.get(0).get("standard")));
-					if(standard.size() > 0) {
-						JsonNode time = objectMapper.readTree(String.valueOf(standard.get("time")));
-						if(time.size() > 0) {
-							String price =String.valueOf(time.get("price").asDouble());
-							chargingCost=new BigDecimal(time.get("tax_excl").asText());
-							double step = time.get("step").asDouble();
-							String units="Min";
-							if(step==3600) {
-								units="Hr";
-							}
-							chargingPricing=currencySymbol+price+"/"+units;
-						}
-						JsonNode energy = objectMapper.readTree(String.valueOf(standard.get("energy")));
-						if(energy.size()>0) {
-							String price =String.valueOf(energy.get("price").asDouble());
-							chargingCost=chargingCost.add(new BigDecimal(energy.get("tax_excl").asText()));
-							if(chargingPricing.equalsIgnoreCase("0.0")) {
-								chargingPricing= currencySymbol+price+"/"+"kWh";
-							}else {
-								chargingPricing=chargingPricing+" & "+currencySymbol+price+"/"+"kWh";
-							}
-						}
-						JsonNode flat = objectMapper.readTree(String.valueOf(standard.get("flat")));
-						if(flat.size()>0) {
-							flatFee=new taxes();
-							String price =currencySymbol+String.valueOf(new BigDecimal(flat.get("price").asText()).setScale(2, RoundingMode.HALF_UP));
-							flatFee.setTax_name_per("Transaction fee cost:");
-							flatFee.setTaxAmount(price);
-
-						}
-					}
-					chargingPricing=chargingPricing+" + tax";
-					JsonNode aditional = objectMapper.readTree(String.valueOf(prices.get(0).get("aditional")));
-					if(aditional.size()>0) {
-						JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
+				 if(prices.size() > 0) {
+					 JsonNode standard = objectMapper.readTree(String.valueOf(prices.get(0).get("standard")));
+					 if(standard.size() > 0) {
+						 JsonNode time = objectMapper.readTree(String.valueOf(standard.get("time")));
+						 if(time.size() > 0) {
+							 String price =String.valueOf(time.get("price").asDouble());
+							 chargingCost=new BigDecimal(time.get("tax_excl").asText());
+							 double step = time.get("step").asDouble();
+							 String units="Min";
+							 if(step==3600) {
+								 units="Hr";
+							 }
+							 chargingPricing=currencySymbol+price+"/"+units;
+						 }
+						 JsonNode energy = objectMapper.readTree(String.valueOf(standard.get("energy")));
+						 if(energy.size()>0) {
+							 String price =String.valueOf(energy.get("price").asDouble());
+							 chargingCost=chargingCost.add(new BigDecimal(energy.get("tax_excl").asText()));
+							 if(chargingPricing.equalsIgnoreCase("0.0")) {
+								 chargingPricing= currencySymbol+price+"/"+"kWh";
+							 }else {
+								 chargingPricing=chargingPricing+" & "+currencySymbol+price+"/"+"kWh";
+							 }
+						 }
+						 JsonNode flat = objectMapper.readTree(String.valueOf(standard.get("flat")));
+						 if(flat.size()>0) {
+							 flatFee=new taxes();
+							 String price =currencySymbol+String.valueOf(new BigDecimal(flat.get("price").asText()).setScale(2, RoundingMode.HALF_UP));
+							 flatFee.setTax_name_per("Transaction fee cost:");
+							 flatFee.setTaxAmount(price);
+							 
+						 }
+					 }
+					 chargingPricing=chargingPricing+" + tax";
+					 JsonNode aditional = objectMapper.readTree(String.valueOf(prices.get(0).get("aditional")));
+					 if(aditional.size()>0) {
+						 JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
 //						 if(rateRider.size()>0) {
 //							 rateRiderAmount=rateRider.get("amount").asText();
 //							 rateRiderType = rateRider.get("type").asText();
@@ -266,21 +272,21 @@ public class alertsServiceImpl implements alertsService{
 //							 tax.setTaxAmount(taxAmount);
 //							 taxes.add(tax);
 //						 }
-						JsonNode idle = objectMapper.readTree(String.valueOf(aditional.get("idle")));
-						if(idle.size()>0) {
+						 JsonNode idle = objectMapper.readTree(String.valueOf(aditional.get("idle")));
+						 if(idle.size()>0) {
 //							 chargingPricing=chargingPricing+" + idle";
-							tax_name_per="Idle Charge";
-							String stepSize=idle.get("step").asDouble()==60 ? "Min" :"Hr";
-							String idleFee=currencySymbol+""+String.valueOf(new BigDecimal(idle.get("price").asText()).setScale(2, RoundingMode.HALF_UP))+"/"+stepSize;
-							IdleCharging idlebill1=new IdleCharging();
-							idlebill1.setName("Idle fee price");
-							idlebill1.setValue(idleFee);
-							idleCharging.add(idlebill1);
-							String graceTime=Utils.formatDuration(idle.get("gracePeriod").asDouble());
-							IdleCharging idlebill2=new IdleCharging();
-							idlebill2.setName("Grace period duration");
-							idlebill2.setValue(graceTime);
-							idleCharging.add(idlebill2);
+							 tax_name_per="Idle Charge";
+							 String stepSize=idle.get("step").asDouble()==60 ? "Min" :"Hr";
+							 String idleFee=currencySymbol+""+String.valueOf(new BigDecimal(idle.get("price").asText()).setScale(2, RoundingMode.HALF_UP))+"/"+stepSize;
+							 IdleCharging idlebill1=new IdleCharging();
+							 idlebill1.setName("Idle fee price");
+							 idlebill1.setValue(idleFee);
+							 idleCharging.add(idlebill1);
+							 String graceTime=Utils.formatDuration(idle.get("gracePeriod").asDouble());
+							 IdleCharging idlebill2=new IdleCharging();
+							 idlebill2.setName("Grace period duration");
+							 idlebill2.setValue(graceTime);
+							 idleCharging.add(idlebill2);
 //							 String idleDuration=Utils.formatDuration(idle.get("idleDuration").asDouble());
 //							 IdleCharging idlebill3=new IdleCharging();
 //							 idlebill3.setName("Idle duration");
@@ -291,68 +297,68 @@ public class alertsServiceImpl implements alertsService{
 //							 idlebill4.setName("Idle cost");
 //							 idlebill4.setValue(idleCost);
 //							 idleCharging.add(idlebill4);
-							if(!String.valueOf(idle.get("inActiveduration")).equalsIgnoreCase("null")) {
-								String inActiveduration=Utils.formatDuration(idle.get("inActiveduration").asDouble());
-								IdleCharging idlebill5=new IdleCharging();
-								idlebill5.setName("Idle fee duration");
-								idlebill5.setValue(inActiveduration);
-								idleCharging.add(idlebill5);
-								String inActiveCost=currencySymbol+""+utils.decimalwithtwoZeros(utils.decimalwithtwodecimals(new BigDecimal(idle.get("inActiveCost").asText())));
+							 if(!String.valueOf(idle.get("inActiveduration")).equalsIgnoreCase("null")) {
+								 String inActiveduration=Utils.formatDuration(idle.get("inActiveduration").asDouble());
+								 IdleCharging idlebill5=new IdleCharging();
+								 idlebill5.setName("Idle fee duration");
+								 idlebill5.setValue(inActiveduration);
+								 idleCharging.add(idlebill5);
+								 String inActiveCost=currencySymbol+""+utils.decimalwithtwoZeros(utils.decimalwithtwodecimals(new BigDecimal(idle.get("inActiveCost").asText())));
 //								 IdleCharging idlebill6=new IdleCharging();
 //								 idlebill6.setName("Idle cost");
 //								 idlebill6.setValue(inActiveCost);
 //								 idleCharging.add(idlebill6);
-								taxes tax = new taxes();
-								tax.setTax_name_per("Idle fee cost");
-								tax.setTaxAmount(inActiveCost);
-								taxes.add(tax);
-							}
-						}
-					}
-					if(flatFee!=null) {
-						taxes.add(flatFee);
-					}
-					JsonNode taxJsonLs = objectMapper.readTree(String.valueOf(aditional.get("tax")));
-					if(taxJsonLs.size()>0) {
-						for(int i=0;i < taxJsonLs.size();i++) {
-							JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxJsonLs.get(i)));
-							if(taxJsonMap.size()>0) {
-								tax_name_per = "Charging cost "+String.valueOf(taxJsonMap.get("name").asText())+"("+String.valueOf(taxJsonMap.get("percnt").asText())+"%)";
-								taxAmount=currencySymbol+""+utils.decimalwithtwoZeros(new BigDecimal(String.valueOf(taxJsonMap.get("chargingAmount").asDouble())).setScale(2, RoundingMode.HALF_UP));
-								total_taxAmount = total_taxAmount.add(new BigDecimal(taxJsonMap.get("chargingAmount").asText()));
-								taxes tax = new taxes();
-								tax.setTax_name_per(tax_name_per);
-								tax.setTaxAmount(taxAmount);
-								taxes.add(tax);
-							}
-							if(taxJsonMap.size()>0) {
-								tax_name_per = "Idle fee cost "+String.valueOf(taxJsonMap.get("name").asText())+"("+String.valueOf(taxJsonMap.get("percnt").asText())+"%)";
-								taxAmount=currencySymbol+""+utils.decimalwithtwoZeros(new BigDecimal(String.valueOf(taxJsonMap.get("idleAmount").asDouble())).setScale(2, RoundingMode.HALF_UP));
-								total_taxAmount = total_taxAmount.add(new BigDecimal(taxJsonMap.get("idleAmount").asText()));
-								taxes tax = new taxes();
-								tax.setTax_name_per(tax_name_per);
-								tax.setTaxAmount(taxAmount);
-								taxes.add(tax);
-							}
-						}
-					}
-					if(!rewardType.equalsIgnoreCase("null") && rewardValue.doubleValue()>0) {
-						if(rewardType.equalsIgnoreCase("Amount")) {
-							taxes reward=new taxes();
-							String price =currencySymbol+String.valueOf(rewardValue.setScale(2, RoundingMode.HALF_UP));
-							reward.setTax_name_per("Reward balance");
-							reward.setTaxAmount(price);
-							taxes.add(reward);
-						}else if(rewardType.equalsIgnoreCase("kWh")){
-							taxes reward=new taxes();
-							String price =String.valueOf(rewardValue.setScale(4, RoundingMode.HALF_UP))+"kWh";
-							reward.setTax_name_per("Reward balance");
-							reward.setTaxAmount(price);
-							taxes.add(reward);
-						}
-
-					}
-				}
+								 taxes tax = new taxes();
+								 tax.setTax_name_per("Idle fee cost");
+								 tax.setTaxAmount(inActiveCost);
+								 taxes.add(tax);
+							 }
+						 }
+					 }
+					 if(flatFee!=null) {
+						 taxes.add(flatFee);
+					 }
+					 JsonNode taxJsonLs = objectMapper.readTree(String.valueOf(aditional.get("tax")));
+					 if(taxJsonLs.size()>0) {
+						 for(int i=0;i < taxJsonLs.size();i++) {
+							 JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxJsonLs.get(i)));
+							 if(taxJsonMap.size()>0) {
+								 tax_name_per = "Charging cost "+String.valueOf(taxJsonMap.get("name").asText())+"("+String.valueOf(taxJsonMap.get("percnt").asText())+"%)";
+								 taxAmount=currencySymbol+""+utils.decimalwithtwoZeros(new BigDecimal(String.valueOf(taxJsonMap.get("chargingAmount").asDouble())).setScale(2, RoundingMode.HALF_UP));
+								 total_taxAmount = total_taxAmount.add(new BigDecimal(taxJsonMap.get("chargingAmount").asText()));
+								 taxes tax = new taxes();
+								 tax.setTax_name_per(tax_name_per);
+								 tax.setTaxAmount(taxAmount);
+								 taxes.add(tax);
+							 }
+							 if(taxJsonMap.size()>0) {
+								 tax_name_per = "Idle fee cost "+String.valueOf(taxJsonMap.get("name").asText())+"("+String.valueOf(taxJsonMap.get("percnt").asText())+"%)";
+								 taxAmount=currencySymbol+""+utils.decimalwithtwoZeros(new BigDecimal(String.valueOf(taxJsonMap.get("idleAmount").asDouble())).setScale(2, RoundingMode.HALF_UP));
+								 total_taxAmount = total_taxAmount.add(new BigDecimal(taxJsonMap.get("idleAmount").asText()));
+								 taxes tax = new taxes();
+								 tax.setTax_name_per(tax_name_per);
+								 tax.setTaxAmount(taxAmount);
+								 taxes.add(tax);
+							 }
+						 }
+					 }
+					 if(!rewardType.equalsIgnoreCase("null") && rewardValue.doubleValue()>0) {
+						 if(rewardType.equalsIgnoreCase("Amount")) {
+							 taxes reward=new taxes();
+							 String price =currencySymbol+String.valueOf(rewardValue.setScale(2, RoundingMode.HALF_UP)); 
+							 reward.setTax_name_per("Reward balance");
+							 reward.setTaxAmount(price);
+							 taxes.add(reward);
+						 }else if(rewardType.equalsIgnoreCase("kWh")){
+							 taxes reward=new taxes();
+							 String price =String.valueOf(rewardValue.setScale(4, RoundingMode.HALF_UP))+"kWh"; 
+							 reward.setTax_name_per("Reward balance");
+							 reward.setTaxAmount(price);
+							 taxes.add(reward);
+						 }
+						
+					 }
+				 }
 			}
 			Map<String,Object> data = new HashMap<>();
 			Map<String,Object> template = new HashMap<>();
@@ -392,7 +398,7 @@ public class alertsServiceImpl implements alertsService{
 			//template.put("taxAmount", currencySymbol+utils.decimalwithtwoZeros(new BigDecimal(taxAmount)));
 			template.put("tax_name_per", tax_name_per);
 			template.put("charging_cost", currencySymbol+String.valueOf(chargingCost.setScale(2, RoundingMode.HALF_UP)));
-
+			
 			template.put("site_name", siteObj.get("siteName"));
 			template.put("capacity_ChargerType", stnObj.get("capacity") +" kW "+stnObj.get("chargerType"));
 			template.put("start_time", utils.userTimeZone(String.valueOf(sessionData.get("startTimeStamp")),userTimeZoneId));
@@ -404,7 +410,7 @@ public class alertsServiceImpl implements alertsService{
 			template.put("to_mail", sessionData.get("emailId"));
 			template.put("taxes", taxes);
 			template.put("idleCharging", idleCharging);
-
+			
 			data.put("template_data",template);
 			data.put("from_mail_port", configs.get("port"));
 			data.put("from_mail_host", configs.get("host"));
@@ -452,49 +458,50 @@ public class alertsServiceImpl implements alertsService{
 	@SuppressWarnings("unchecked")
 	@Override
 	public SessionImportedValues notifyChargingSessionSummaryData(SessionImportedValues siv) {
-		try {
-			boolean notifyAlert = false;
-			if(siv.getTxnData() != null){
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				boolean notifyAlert = false;
+				if (siv.getTxnData() != null) {
 //				JsonNode tariff = objectMapper.readTree(siv.getTxnData().getTariff_prices());
 //				if(tariff.size() > 0) {
-				if(!siv.isIdleBilling()) {
-					if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-						PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
-						if(pn != null && pn.isNotificationChargingCompleted()) {
+					if (!siv.isIdleBilling()) {
+						if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+							PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
+							if (pn != null && pn.isNotificationChargingCompleted()) {
+								notifyAlert = true;
+							}
+						} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
 							notifyAlert = true;
 						}
-					}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
-						notifyAlert = true;
+					}
+//				}
+				}
+				if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && notifyAlert) {
+					PreferredNotification pn = preferredNotify(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
+					if (pn != null && pn.isNotificationChargingCompleted()) {
+						JsonNode stnJson = objectMapper.readTree(siv.getTxnData().getStn_obj());
+						JSONObject map = new JSONObject();
+						map.put("notificationId", utils.getRandomNumber(""));
+						map.put("type", "Charging Summary");
+						map.put("categoryIdentifier", "notification");
+						map.put("energyDelivered", String.valueOf(siv.getTotalKwUsed()));
+						map.put("finalCost", String.valueOf(siv.getFinalCostInslcCurrency()));
+						map.put("referNo", siv.getStnRefNum());
+						map.put("stationName", siv.getStnObj().get("stationName").asText());
+						map.put("duration", String.valueOf(siv.getSessionDuration()));
+						map.put("connectorId", stnJson.get("connector_id").asText());
+						map.put("sessionId", siv.getChargeSessUniqId());
+						map.put("currencyCode", siv.getUserObj().get("crncy_Code").asText());
+						map.put("currencySymbol", siv.getUserObj().get("crncy_HexCode").asText());
+						map.put("uuid", siv.getUserObj().get("uuid").asText());
+						boolean flag = sendNotifications(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId"))), "", "Charging Session", siv.getStnRefNum(), siv.getTxnData().getOrgId(), siv.getChargeSessUniqId(), map, siv.getChargeSessUniqId(), 0);
+						siv.setNotification(flag);
 					}
 				}
-//				}
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-			if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && notifyAlert) {
-				PreferredNotification pn = preferredNotify(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
-				if(pn != null && pn.isNotificationChargingCompleted()) {
-					JsonNode stnJson = objectMapper.readTree(siv.getTxnData().getStn_obj());
-					JSONObject map = new JSONObject();
-					map.put("notificationId", utils.getRandomNumber(""));
-					map.put("type", "Charging Summary");
-					map.put("categoryIdentifier", "notification");
-					map.put("energyDelivered", String.valueOf(siv.getTotalKwUsed()));
-					map.put("finalCost", String.valueOf(siv.getFinalCostInslcCurrency()));
-					map.put("referNo", siv.getStnRefNum());
-					map.put("stationName", siv.getStnObj().get("stationName").asText());
-					map.put("duration", String.valueOf(siv.getSessionDuration()));
-					map.put("connectorId", stnJson.get("connector_id").asText());
-					map.put("sessionId", siv.getChargeSessUniqId());
-					map.put("currencyCode", siv.getUserObj().get("crncy_Code").asText());
-					map.put("currencySymbol", siv.getUserObj().get("crncy_HexCode").asText());
-					map.put("uuid", siv.getUserObj().get("uuid").asText());
-					boolean flag=sendNotifications(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId"))),"","Charging Session",siv.getStnRefNum(),siv.getTxnData().getOrgId(),siv.getChargeSessUniqId(),map,siv.getChargeSessUniqId(),0);
-					siv.setNotification(flag);
-				}
-			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
-
 		return siv;
 	}
 //	@Override
@@ -506,27 +513,29 @@ public class alertsServiceImpl implements alertsService{
 //			e.printStackTrace();
 //		}
 //	}
-
+	
 	@Override
 	public SessionImportedValues smsChargingSessionSummaryData(SessionImportedValues siv) {
-		try {
-			if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && !siv.isIdleBilling()) {
-				PreferredNotification pn = preferredNotify(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
-				if(pn != null && pn.isSmsChargingCompleted()) {
-					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-					if(userJson.size() > 0) {
-						String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
-						boolean flag= smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(),String.valueOf(siv.getChargeSessId()),"NrmlUserStop",Double.parseDouble(String.valueOf(siv.getFinalCostInslcCurrency())),phoneNumber,null,null,siv.getChargeSessUniqId(),0);
-						siv.setSms(flag);
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && !siv.isIdleBilling()) {
+					PreferredNotification pn = preferredNotify(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
+					if (pn != null && pn.isSmsChargingCompleted()) {
+						JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
+						if (userJson.size() > 0) {
+							String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
+							boolean flag = smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(), String.valueOf(siv.getChargeSessId()), "NrmlUserStop", Double.parseDouble(String.valueOf(siv.getFinalCostInslcCurrency())), phoneNumber, null, null, siv.getChargeSessUniqId(), 0);
+							siv.setSms(flag);
+						}
 					}
 				}
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
 		return siv;
 	}
-
+	
 	@Override
 	public void lowBalanceMailAlert(SessionImportedValues siv,Double accBal) {
 		try {
@@ -539,7 +548,7 @@ public class alertsServiceImpl implements alertsService{
 					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
 					JsonNode siteObj = objectMapper.readTree(siv.getTxnData().getSite_obj());
 					long userTimeZoneId = getTimeZone(siteObj.get("timeZone").asText());
-
+					
 					template.put("accName", String.valueOf(userJson.get("accountName").asText()));
 					template.put("digitalId", String.valueOf(userJson.get("digitalId").asText()));
 					template.put("currentBalance", "$"+accBal.toString());
@@ -553,7 +562,7 @@ public class alertsServiceImpl implements alertsService{
 					template.put("to_mail", String.valueOf(userJson.get("email").asText()));
 					template.put("support_mail", String.valueOf(configs.get("supportEmail")));
 					template.put("support_phone", String.valueOf(configs.get("phoneNumber")));
-
+					
 					data.put("from_mail_port", configs.get("port"));
 					data.put("from_mail_host", configs.get("host"));
 					data.put("from_mail", configs.get("email"));
@@ -573,7 +582,7 @@ public class alertsServiceImpl implements alertsService{
 			e.printStackTrace();
 		}
 	}
-
+	
 	@SuppressWarnings("unchecked")
 	public boolean sendNotifications(Long userId, String message, String NoftyType,String stationRefNum, long orgId, String randomSessionId, JSONObject info,String sessionId,long resend) {
 		try {
@@ -623,8 +632,8 @@ public class alertsServiceImpl implements alertsService{
 					map.put("categoryIdentifier", "notification");
 					map.put("notificationId", utils.getRandomNumber(""));
 					map.put("uuid", siv.getUserObj().get("uuid").asText());
-					map.put("currencySymbol", siv.getUserObj().get("crncy_HexCode").asText());
-					map.put("currencyCode", siv.getUserObj().get("crncy_Code").asText());
+					map.put("currencySymbol", siv.getUserObj().get("crncy_HexCode").asText()); 
+					map.put("currencyCode", siv.getUserObj().get("crncy_Code").asText()); 
 					sendNotifications(siv.getUserObj().get("UserId").asLong(),"","Low Balance",siv.getStnRefNum(),siv.getTxnData().getOrgId(),siv.getChargeSessUniqId(),map,null,0);
 				}
 			}
@@ -730,113 +739,117 @@ public class alertsServiceImpl implements alertsService{
 
 	@Override
 	public void alertPAYGStop(SessionImportedValues siv) {
-		try {
-			if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG") && !siv.isIdleBilling()) {
-				JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-				if(userJson.size() > 0 && userJson.get("authorizeAmount").asDouble() > 0) {
-					String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
-					if(phoneNumber != null && !phoneNumber.contains("GUEST")) {
-						smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(),String.valueOf(siv.getChargeSessId()),"PAYGStop",Double.parseDouble(String.valueOf(siv.getFinalCostInslcCurrency())),phoneNumber,null,null,null,0);
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG") && !siv.isIdleBilling()) {
+					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
+					if (userJson.size() > 0 && userJson.get("authorizeAmount").asDouble() > 0) {
+						String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
+						if (phoneNumber != null && !phoneNumber.contains("GUEST")) {
+							smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(), String.valueOf(siv.getChargeSessId()), "PAYGStop", Double.parseDouble(String.valueOf(siv.getFinalCostInslcCurrency())), phoneNumber, null, null, null, 0);
+						}
 					}
 				}
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	public void notifyInActiveBilling(SessionImportedValues siv) {
-		try {
-			boolean notifyAlert = false;
-			boolean idleBilling=false;
-			if(siv.getTxnData() != null && Double.parseDouble(String.valueOf(siv.getTotalKwUsed()))>siv.getTxnData().getMinkWhEnergy()&& siv.isIdleBilling()){
-				idleBilling=true;
-				if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-					PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
-					if(pn != null && pn.isNotificationIdleBilling()) {
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				boolean notifyAlert = false;
+				boolean idleBilling = false;
+				if (siv.getTxnData() != null && Double.parseDouble(String.valueOf(siv.getTotalKwUsed())) > siv.getTxnData().getMinkWhEnergy() && siv.isIdleBilling()) {
+					idleBilling = true;
+					if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+						PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
+						if (pn != null && pn.isNotificationIdleBilling()) {
+							notifyAlert = true;
+						}
+					} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
 						notifyAlert = true;
 					}
-				}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
-					notifyAlert = true;
 				}
-			}
-			JSONArray iOSRecipients = new JSONArray();
-			JSONArray androidRecipients = new JSONArray();
-			String legacykey ="";
-			String serverKey ="";
-			String gracePeriod="0";
-			double idleFee=0.0;
-			double step=0.0;
-			List<String> deviceTokens=new ArrayList();
-			if(notifyAlert) {
-				String crncy_Code=String.valueOf(siv.getSiteObj().get("crncy_Code").asText());
-				String crncy_HexCode=String.valueOf(siv.getSiteObj().get("crncy_HexCode").asText());
-				logger.info(Thread.currentThread().getId()+"pricess : "+String.valueOf(objectMapper.readTree(siv.getTxnData().getTariff_prices()).get(0).get("cost_info").get(0).get("aditional")));
-				JsonNode idleCharge = objectMapper.readTree(String.valueOf(objectMapper.readTree(String.valueOf(objectMapper.readTree(siv.getTxnData().getTariff_prices()).get(0).get("cost_info").get(0).get("aditional"))).get("idleCharge")));
-				gracePeriod=idleCharge.get("gracePeriod").asText();
-				idleFee=idleCharge.get("price").asDouble();
-				step=idleCharge.get("step").asDouble();
-				JSONObject map = new JSONObject();
-				map.put("type", "Idle Billing");
-				map.put("category", "Grace Time Started");
-				map.put("billingStartTime", idleCharge.get("gracePeriod").asText());
-				map.put("billingStartTimeLabel", "min");
-				map.put("sessionId", siv.getChargeSessUniqId());
-				map.put("idleFee",String.valueOf(idleFee));
-				map.put("step", String.valueOf(step));
-				map.put("currencyCode",crncy_Code);
-				map.put("currencySymbol",crncy_HexCode );
-				map.put("notificationId", utils.getRandomNumber(""));
-				map.put("categoryIdentifier", "notification");
+				JSONArray iOSRecipients = new JSONArray();
+				JSONArray androidRecipients = new JSONArray();
+				String legacykey = "";
+				String serverKey = "";
+				String gracePeriod = "0";
+				double idleFee = 0.0;
+				double step = 0.0;
+				List<String> deviceTokens = new ArrayList();
+				if (notifyAlert) {
+					String crncy_Code = String.valueOf(siv.getSiteObj().get("crncy_Code").asText());
+					String crncy_HexCode = String.valueOf(siv.getSiteObj().get("crncy_HexCode").asText());
+					logger.info(Thread.currentThread().getId() + "pricess : " + String.valueOf(objectMapper.readTree(siv.getTxnData().getTariff_prices()).get(0).get("cost_info").get(0).get("aditional")));
+					JsonNode idleCharge = objectMapper.readTree(String.valueOf(objectMapper.readTree(String.valueOf(objectMapper.readTree(siv.getTxnData().getTariff_prices()).get(0).get("cost_info").get(0).get("aditional"))).get("idleCharge")));
+					gracePeriod = idleCharge.get("gracePeriod").asText();
+					idleFee = idleCharge.get("price").asDouble();
+					step = idleCharge.get("step").asDouble();
+					JSONObject map = new JSONObject();
+					map.put("type", "Idle Billing");
+					map.put("category", "Grace Time Started");
+					map.put("billingStartTime", idleCharge.get("gracePeriod").asText());
+					map.put("billingStartTimeLabel", "min");
+					map.put("sessionId", siv.getChargeSessUniqId());
+					map.put("idleFee", String.valueOf(idleFee));
+					map.put("step", String.valueOf(step));
+					map.put("currencyCode", crncy_Code);
+					map.put("currencySymbol", crncy_HexCode);
+					map.put("notificationId", utils.getRandomNumber(""));
+					map.put("categoryIdentifier", "notification");
 
-				Map<String, Object> configProperties = configService.configData(siv.getTxnData().getOrgId());
-				if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-					List<DeviceDetails> deviceDetails = ocppUserService.getDeviceDetailsByUserId(siv.getUserObj().get("UserId").asLong());
-					if (deviceDetails != null) {
-						deviceDetails.forEach(device -> {
-							try {
-								if(!String.valueOf(device.getDeviceToken()).equalsIgnoreCase("")) {
-									deviceTokens.add(device.getDeviceToken());
+					Map<String, Object> configProperties = configService.configData(siv.getTxnData().getOrgId());
+					if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+						List<DeviceDetails> deviceDetails = ocppUserService.getDeviceDetailsByUserId(siv.getUserObj().get("UserId").asLong());
+						if (deviceDetails != null) {
+							deviceDetails.forEach(device -> {
+								try {
+									if (!String.valueOf(device.getDeviceToken()).equalsIgnoreCase("")) {
+										deviceTokens.add(device.getDeviceToken());
+									}
+								} catch (Exception e) {
+									e.printStackTrace();
 								}
-							} catch (Exception e) {
-								e.printStackTrace();
-							}
-						});
-					}
+							});
+						}
 //					deviceTokens.addAll(deviceDetails.stream().filter(device-> device.getDeviceType().equalsIgnoreCase("Android")).map(DeviceDetails::getDeviceToken).collect(Collectors.toList()));
 //					deviceTokens.addAll(deviceDetails.stream().filter(device-> device.getDeviceType().equalsIgnoreCase("iOS")).map(DeviceDetails::getDeviceToken).collect(Collectors.toList()));
-				}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
+					} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
+					}
+					if (deviceTokens.size() > 0) {
+						pushNotification.sendMulticastMessage(map, deviceTokens, null, 0);
+					}
 				}
-				if(deviceTokens.size()>0) {
-					pushNotification.sendMulticastMessage(map, deviceTokens,null,0);
-				}
-			}
-			if(idleBilling) {
-				JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-				if(userJson.size() > 0) {
-					boolean smsIdleBilling=false;
-					if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-						PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
-						if(pn != null && pn.isSmsIdleBilling()) {
+				if (idleBilling) {
+					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
+					if (userJson.size() > 0) {
+						boolean smsIdleBilling = false;
+						if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+							PreferredNotification pn = preferredNotify(siv.getUserObj().get("UserId").asLong());
+							if (pn != null && pn.isSmsIdleBilling()) {
+								smsIdleBilling = true;
+							}
+						} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
 							smsIdleBilling = true;
 						}
-					}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
-						smsIdleBilling = true;
+						if (smsIdleBilling) {
+							String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
+							smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(), String.valueOf(siv.getChargeSessId()), "Chargingcomplete", idleFee, phoneNumber, step == 360 ? "hour" : "minute", String.valueOf(gracePeriod), null, 0);
+						}
 					}
-					if(smsIdleBilling) {
-						String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
-						smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(),String.valueOf(siv.getChargeSessId()),"Chargingcomplete",idleFee,phoneNumber,step==360?"hour":"minute",String.valueOf(gracePeriod),null,0);
-					}
+					inActivityNotification(siv, deviceTokens, legacykey, serverKey, gracePeriod, notifyAlert, idleFee, step);
 				}
-				inActivityNotification( siv, deviceTokens, legacykey, serverKey, gracePeriod,notifyAlert,idleFee,step);
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
 	}
-
+	
 	public void inActivityNotification(SessionImportedValues siv,List<String> deviceTokens,String legacykey,String serverKey,String graceTime,boolean notifyAlert,double idleFee,double step) {
 		try {
 			Thread newThread = new Thread() {
@@ -874,15 +887,15 @@ public class alertsServiceImpl implements alertsService{
 								email = true;
 								sms = true;
 							}
-
+							
 							if(email) {
 								idleStartMail(siv);
 							}
 							JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-							if(userJson.size() > 0 && sms) {
+							  if(userJson.size() > 0 && sms) {
 								String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
 								smsIntegrationImpl.sendSMSUsingBootConfg(siv.getStnRefNum(),String.valueOf(siv.getChargeSessId()),"idleFeeStart",idleFee,phoneNumber,step==360?"hour":"minute",String.valueOf(graceTime),null,0);
-							}
+							  }
 							if(notifyAlert) {
 								String crncy_Code=String.valueOf(siv.getSiteObj().get("crncy_Code").asText());
 								String crncy_HexCode=String.valueOf(siv.getSiteObj().get("crncy_HexCode").asText());
@@ -898,7 +911,7 @@ public class alertsServiceImpl implements alertsService{
 								map.put("currencySymbol",crncy_HexCode );
 								map.put("notificationId", utils.getRandomNumber(""));
 								map.put("categoryIdentifier", "notification");
-
+								
 								if(deviceTokens.size()>0) {
 									pushNotification.sendMulticastMessage(map, deviceTokens,null,0);
 								}
@@ -914,8 +927,8 @@ public class alertsServiceImpl implements alertsService{
 			e.printStackTrace();
 		}
 	}
-
-
+	
+	
 	private void inActivityMail(SessionImportedValues siv) {
 		try {
 			Map<String, Object> configs = configService.getAlertConfigs();
@@ -942,7 +955,7 @@ public class alertsServiceImpl implements alertsService{
 			template.put("to_mail", String.valueOf(userJson.get("email").asText()));
 			template.put("support_mail", String.valueOf(configs.get("supportEmail")));
 			template.put("support_phone", String.valueOf(configs.get("phoneNumber")));
-
+			
 			data.put("template_data",template);
 			data.put("from_mail_port", configs.get("port"));
 			data.put("from_mail_host", configs.get("host"));
@@ -986,7 +999,7 @@ public class alertsServiceImpl implements alertsService{
 			template.put("to_mail", String.valueOf(userJson.get("email").asText()));
 			template.put("support_mail", String.valueOf(configs.get("supportEmail")));
 			template.put("support_phone", String.valueOf(configs.get("phoneNumber")));
-
+			
 			data.put("template_data",template);
 			data.put("from_mail_port", configs.get("port"));
 			data.put("from_mail_host", configs.get("host"));
@@ -1005,9 +1018,10 @@ public class alertsServiceImpl implements alertsService{
 		}
 	}
 	@Override
-	public SessionImportedValues chargingActivityMail(SessionImportedValues siv) {
-		try {
-			if(siv.getTxnData() != null){
+    public SessionImportedValues chargingActivityMail(SessionImportedValues siv) {
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				if (siv.getTxnData() != null) {
 //				JsonNode tariff = objectMapper.readTree(siv.getTxnData().getTariff_prices());
 //				if(tariff.size() > 0) {
 //					JsonNode prices = objectMapper.readTree(String.valueOf(tariff.get(0).get("cost_info")));
@@ -1015,16 +1029,17 @@ public class alertsServiceImpl implements alertsService{
 //						mailChargingSessionSummaryData(siv.getChargeSessUniqId(),false);
 //					}
 //				}
-				if(!siv.isIdleBilling()) {
-					String response=mailChargingSessionSummaryData(siv.getChargeSessUniqId(),false);
-					siv.setMail(response.equalsIgnoreCase("success"));
+					if (!siv.isIdleBilling()) {
+						String response = mailChargingSessionSummaryData(siv.getChargeSessUniqId(), false);
+						siv.setMail(response.equalsIgnoreCase("success"));
+					}
 				}
+			} catch (Exception e) {
+				e.printStackTrace();
 			}
-		}catch (Exception e) {
-			e.printStackTrace();
 		}
-		return siv;
-	}
+    	return siv;
+    }
 	@Override
 	public boolean chargingActivityNotification(OCPPTransactionData txnData,long userId,double kwhUsed,double finalCost,double duration) {
 		try {
@@ -1038,8 +1053,8 @@ public class alertsServiceImpl implements alertsService{
 					map.put("type", "Charging Summary");
 					map.put("categoryIdentifier", "notification");
 					map.put("energyDelivered", String.valueOf(kwhUsed));
-					map.put("finalCost", String.valueOf(finalCost));
-					map.put("referNo",  stnJson.get("referNo").asText());
+					map.put("finalCost", String.valueOf(finalCost)); 
+					map.put("referNo",  stnJson.get("referNo").asText()); 
 					map.put("stationName", stnJson.get("stationName").asText());
 					map.put("duration", String.valueOf(duration));
 					map.put("connectorId", stnJson.get("connector_id").asText());
@@ -1057,98 +1072,5 @@ public class alertsServiceImpl implements alertsService{
 		}
 		return true;
 	}
-
-	@Override
-	public void sendMeterValueViolationAlert(SessionImportedValues siv) {
-		if (siv.isEnergyModify()) {
-			if (!siv.getTxnData().isEnergyModifyFlag()) {
-				try {
-					double sessionDurationMinutes = siv.getSessionDuration().doubleValue();
-					double totalKwhUsed = siv.getActualEnergy().doubleValue();
-					double chargerCapacity = Double.parseDouble(siv.getStnObj().get("capacity").asText());
-
-					double maxPossibleEnergyDelivery = (chargerCapacity / 60) * sessionDurationMinutes;
-					double maxPossibleWithBuffer = maxPossibleEnergyDelivery * 1.2;
-
-					if (totalKwhUsed <= maxPossibleWithBuffer) {
-						logger.info(Thread.currentThread().getId() + " Energy usage within acceptable limits: " +
-								totalKwhUsed + " kWh used vs " + maxPossibleWithBuffer + " kWh max possible");
-						return;
-					}
-
-					Map<String, Object> configs = configService.getAlertConfigs();
-					Map<String, Object> data = new HashMap<>();
-					Map<String, Object> template = new HashMap<>();
-					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-//					JsonNode siteObj = objectMapper.readTree(siv.getTxnData().getSite_obj());
-//						long userTimeZoneId = getTimeZone(siteObj.get("timeZone").asText());
-
-					String internalEmail = getInternalEmail();
-
-					template.put("accName", "System Administrator");
-					template.put("to_mail", internalEmail);
-					template.put("userEmail", String.valueOf(userJson.get("email").asText()));
-
-					// Template data
-					template.put("currDate", utils.getUTCDateString());
-					template.put("stnRefNum", siv.getStnRefNum());
-					template.put("sessionId", String.valueOf(siv.getChargeSessId()));
-					template.put("phoneNumber", configs.get("phoneNumber"));
-					template.put("orgAddress", configs.get("address"));
-					template.put("orgName", configs.get("orgName"));
-					template.put("portalUrl", configs.get("portalLink"));
-					template.put("support_mail", String.valueOf(configs.get("supportEmail")));
-					template.put("support_phone", String.valueOf(configs.get("phoneNumber")));
-					template.put("chargerCapacity", chargerCapacity + " kW");
-					template.put("detectedEnergy", new BigDecimal(totalKwhUsed).setScale(4, RoundingMode.HALF_UP));
-					template.put("maxAllowedEnergy", new BigDecimal(maxPossibleEnergyDelivery).setScale(4, RoundingMode.HALF_UP));
-					template.put("sessionDuration", Utils.formatDuration(sessionDurationMinutes));
-
-					// Email configuration
-					data.put("template_data", template);
-					data.put("from_mail_port", configs.get("port"));
-					data.put("from_mail_host", configs.get("host"));
-					data.put("from_mail", configs.get("email"));
-					data.put("from_mail_auth", configs.get("email_auth"));
-					data.put("from_mail_password", configs.get("password"));
-					data.put("from_mail_protocol", configs.get("protocol"));
-					data.put("subject", "BC Hydro EV Charging Alert - Meter Value Violation");
-					data.put("to_mail", template.get("to_mail"));
-					data.put("to_mail_cc", "");
-					data.put("logo", configs.get("logo_url"));
-					data.put("template_name", "meterValueViolation.ftl");
-
-					emailServiceImpl.bchInternalAlertEmail(data, 0, siv.getChargeSessUniqId());
-
-					logger.info(Thread.currentThread().getId() + " Sent internal meter value violation notification for session: " +
-							siv.getChargeSessUniqId() + " to email: " + internalEmail +
-							". Energy usage: " + totalKwhUsed + " kWh vs max possible: " + maxPossibleWithBuffer + " kWh");
-				} catch (Exception e) {
-					logger.error(Thread.currentThread().getId() + " Error sending meter value violation email: " + e.getMessage());
-					e.printStackTrace();
-				}
-
-				siv.getTxnData().setEnergyModifyFlag(true);
-			}
-
-		}
-	}
-
-	private String getInternalEmail() {
-		String email = "";
-		try {
-			String query = "select value from serverProperties where value like '%@%' and value like '%.com%'";
-			List<Map<String, Object>> results = executeRepository.findAll(query);
-			if (results != null && !results.isEmpty()) {
-				email = String.valueOf(results.get(0).get("value"));
-			} else {
-				email = "Alerts@evgateway.com";
-			}
-		} catch (Exception e) {
-			logger.error(Thread.currentThread().getId() + " Error getting internal email: " + e.getMessage());
-			email = "Alerts@evgateway.com"; // Fallback
-		}
-		return email;
-	}
-
+	
 }

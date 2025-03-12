@@ -13,7 +13,6 @@ public class StopTransaction {
 	private String idTag;
 	private double meterStop;
 	private String timestampStr;
-	private String sessionId;
 
 	@Temporal(TemporalType.DATE)
 	@Column(name = "timeStamp", length = 10)
@@ -32,25 +31,8 @@ public class StopTransaction {
 	private String vendorid;
 	private String paymentcode;
 	private String phone;
-	private long connectorId;
-
-
-	public String getSessionId() {
-		return sessionId;
-	}
-
-	public void setSessionId(String sessionId) {
-		this.sessionId = sessionId;
-	}
-
-	public long getConnectorId() {
-		return connectorId;
-	}
-
-	public void setConnectorId(long connectorId) {
-		this.connectorId = connectorId;
-	}
-
+	
+	
 	public long getTransactionId() {
 		return transactionId;
 	}
@@ -203,31 +185,14 @@ public class StopTransaction {
 		this.timestampStr = timestampStr;
 	}
 
-
 	@Override
 	public String toString() {
-		return "StopTransaction{" +
-				"transactionId=" + transactionId +
-				", reason='" + reason + '\'' +
-				", idTag='" + idTag + '\'' +
-				", meterStop=" + meterStop +
-				", timestampStr='" + timestampStr + '\'' +
-				", sessionId='" + sessionId + '\'' +
-				", timeStamp=" + timeStamp +
-				", transactionData=" + transactionData +
-				", paymentmode='" + paymentmode + '\'' +
-				", ccdata='" + ccdata + '\'' +
-				", maskeddata='" + maskeddata + '\'' +
-				", cardType='" + cardType + '\'' +
-				", decrypteddataLen='" + decrypteddataLen + '\'' +
-				", ksn='" + ksn + '\'' +
-				", type='" + type + '\'' +
-				", drCode='" + drCode + '\'' +
-				", pricecode='" + pricecode + '\'' +
-				", vendorid='" + vendorid + '\'' +
-				", paymentcode='" + paymentcode + '\'' +
-				", phone='" + phone + '\'' +
-				", connectorId=" + connectorId +
-				'}';
+		return "StopTransaction [transactionId=" + transactionId + ", reason=" + reason + ", idTag=" + idTag
+				+ ", meterStop=" + meterStop + ", timestampStr=" + timestampStr + ", timeStamp=" + timeStamp
+				+ ", transactionData=" + transactionData + ", paymentmode=" + paymentmode + ", ccdata=" + ccdata
+				+ ", maskeddata=" + maskeddata + ", cardType=" + cardType + ", decrypteddataLen=" + decrypteddataLen
+				+ ", ksn=" + ksn + ", type=" + type + ", drCode=" + drCode + ", pricecode=" + pricecode + ", vendorid="
+				+ vendorid + ", paymentcode=" + paymentcode + ", phone=" + phone + "]";
 	}
+
 }

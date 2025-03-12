@@ -17,6 +17,9 @@ public class freeChargingForDriverGrp extends BaseEntity{
 	private long userId;
 	private double usedFreeMins;
 	private double usedFreekWhs;
+	private double remainingFreeKwh;
+	private double remainingFreeMins;
+
 	public Date getCreatedDate() {
 		return createdDate;
 	}
@@ -41,6 +44,23 @@ public class freeChargingForDriverGrp extends BaseEntity{
 	public void setUsedFreekWhs(double usedFreekWhs) {
 		this.usedFreekWhs = usedFreekWhs;
 	}
+
+	public double getRemainingFreeKwh() {
+		return remainingFreeKwh;
+	}
+
+	public void setRemainingFreeKwh(double remainingFreeKwh) {
+		this.remainingFreeKwh = remainingFreeKwh;
+	}
+
+	public double getRemainingFreeMins() {
+		return remainingFreeMins;
+	}
+
+	public void setRemainingFreeMins(double remainingFreeMins) {
+		this.remainingFreeMins = remainingFreeMins;
+	}
+
 	@Override
 	public String toString() {
 		return "freeChargingForDriverGrp [createdDate=" + createdDate + ", userId=" + userId + ", usedFreeMins="

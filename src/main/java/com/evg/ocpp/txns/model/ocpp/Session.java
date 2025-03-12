@@ -28,10 +28,7 @@ public class Session extends BaseEntity {
 	@Temporal(TemporalType.DATE)
 	@Column(name = "startTimeStamp", length = 10)
 	private Date startTimeStamp;
-
-	@Temporal(TemporalType.DATE)
-	@Column(name = "modifiedDate", length = 10)
-	private Date modifiedDate;
+	private Date settlementTimeStamp;
 	private double sessionElapsedInMin;
 	private double kilowattHoursUsed;
 	private double finalCostInSlcCurrency;
@@ -79,14 +76,7 @@ public class Session extends BaseEntity {
     private String sitename; 
     private String siteType;
     private String txnInitiate;
-	private boolean energyModify;
-	private double actualEnergy;
-
-	public boolean isEnergyModify() {return energyModify;}
-	public void setEnergyModify(boolean energyModify) {this.energyModify = energyModify;}
-	public double getActualEnergy() {return actualEnergy;}
-	public void setActualEnergy(double actualEnergy) {this.actualEnergy = actualEnergy;}
-
+    
 	public String getSessionId() {
 		return sessionId;
 	}
@@ -213,7 +203,9 @@ public class Session extends BaseEntity {
 	public void setUserCurrencyType(String userCurrencyType) {
 		this.userCurrencyType = userCurrencyType;
 	}
-	
+	public Date getSettlementTimeStamp() {return settlementTimeStamp;}
+	public void setSettlementTimeStamp(Date settlementTimeStamp) {this.settlementTimeStamp = settlementTimeStamp;	}
+
 	@JsonIgnore
 	@ManyToOne(fetch = FetchType.LAZY, cascade = { CascadeType.MERGE })
 	@JoinColumn(name = "accountTransaction_id")
@@ -393,66 +385,26 @@ public class Session extends BaseEntity {
 	public void setTxnInitiate(String txnInitiate) {
 		this.txnInitiate = txnInitiate;
 	}
-
-	public Date getModifiedDate() {	return modifiedDate;}
-	public void setModifiedDate(Date modifiedDate) {this.modifiedDate = modifiedDate;}
-
+	
 	@Override
 	public String toString() {
-		return "Session{" +
-				"sessionId='" + sessionId + '\'' +
-				", customerId='" + customerId + '\'' +
-				", startTimeStamp=" + startTimeStamp +
-				", modifiedDate=" + modifiedDate +
-				", sessionElapsedInMin=" + sessionElapsedInMin +
-				", kilowattHoursUsed=" + kilowattHoursUsed +
-				", finalCostInSlcCurrency=" + finalCostInSlcCurrency +
-				", cost=" + cost +
-				", reasonForTer='" + reasonForTer + '\'' +
-				", emailId='" + emailId + '\'' +
-				", driverGroupName='" + driverGroupName + '\'' +
-				", startTxnProgress=" + startTxnProgress +
-				", port=" + port +
-				", stationMode='" + stationMode + '\'' +
-				", chargerType='" + chargerType + '\'' +
-				", userId=" + userId +
-				", currencyType='" + currencyType + '\'' +
-				", idTagProfileName='" + idTagProfileName + '\'' +
-				", profileType='" + profileType + '\'' +
-				", currencyRate=" + currencyRate +
-				", masterList=" + masterList +
-				", userCurrencyType='" + userCurrencyType + '\'' +
-				", accountTransaction=" + accountTransaction +
-				", endTimeStamp=" + endTimeStamp +
-				", creationDate=" + creationDate +
-				", sessionStatus='" + sessionStatus + '\'' +
-				", transactionStatus='" + transactionStatus + '\'' +
-				", transactionType='" + transactionType + '\'' +
-				", txnType='" + txnType + '\'' +
-				", socStartVal=" + socStartVal +
-				", socEndVal=" + socEndVal +
-				", preProdSess='" + preProdSess + '\'' +
-				", settlement='" + settlement + '\'' +
-				", paymentMode='" + paymentMode + '\'' +
-				", inaccurateTxn=" + inaccurateTxn +
-				", successFlag=" + successFlag +
-				", selfCharging=" + selfCharging +
-				", rewardType='" + rewardType + '\'' +
-				", rewardValue=" + rewardValue +
-				", tax1_amount=" + tax1_amount +
-				", tax1_pct=" + tax1_pct +
-				", tax2_amount=" + tax2_amount +
-				", tax2_pct=" + tax2_pct +
-				", tax3_amount=" + tax3_amount +
-				", tax3_pct=" + tax3_pct +
-				", avg_power='" + avg_power + '\'' +
-				", min_power=" + min_power +
-				", powerActiveImport_value=" + powerActiveImport_value +
-				", sitename='" + sitename + '\'' +
-				", siteType='" + siteType + '\'' +
-				", txnInitiate='" + txnInitiate + '\'' +
-				", energyModify=" + energyModify +
-				", actualEnergy=" + actualEnergy +
-				'}';
+		return "Session [sessionId=" + sessionId + ", customerId=" + customerId + ", startTimeStamp=" + startTimeStamp
+				+ ", sessionElapsedInMin=" + sessionElapsedInMin + ", kilowattHoursUsed=" + kilowattHoursUsed
+				+ ", finalCostInSlcCurrency=" + finalCostInSlcCurrency + ", cost=" + cost + ", reasonForTer="
+				+ reasonForTer + ", emailId=" + emailId + ", driverGroupName=" + driverGroupName + ", startTxnProgress="
+				+ startTxnProgress + ", port=" + port + ", stationMode=" + stationMode + ", chargerType=" + chargerType
+				+ ", userId=" + userId + ", currencyType=" + currencyType + ", idTagProfileName=" + idTagProfileName
+				+ ", profileType=" + profileType + ", currencyRate=" + currencyRate + ", masterList=" + masterList
+				+ ", userCurrencyType=" + userCurrencyType + ", accountTransaction=" + accountTransaction
+				+ ", endTimeStamp=" + endTimeStamp + ", creationDate=" + creationDate + ", sessionStatus="
+				+ sessionStatus + ", transactionStatus=" + transactionStatus + ", transactionType=" + transactionType
+				+ ", txnType=" + txnType + ", socStartVal=" + socStartVal + ", socEndVal=" + socEndVal
+				+ ", preProdSess=" + preProdSess + ", settlement=" + settlement + ", paymentMode=" + paymentMode
+				+ ", inaccurateTxn=" + inaccurateTxn + ", successFlag=" + successFlag + ", selfCharging=" + selfCharging
+				+ ", rewardType=" + rewardType + ", rewardValue=" + rewardValue + ", tax1_amount=" + tax1_amount
+				+ ", tax1_pct=" + tax1_pct + ", tax2_amount=" + tax2_amount + ", tax2_pct=" + tax2_pct
+				+ ", tax3_amount=" + tax3_amount + ", tax3_pct=" + tax3_pct + ", avg_power=" + avg_power
+				+ ", min_power=" + min_power + ", powerActiveImport_value=" + powerActiveImport_value + ", sitename="
+				+ sitename + ", siteType=" + siteType + ", txnInitiate=" + txnInitiate + "]";
 	}
 }

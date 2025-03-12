@@ -12,6 +12,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.persistence.Column;
 import javax.persistence.Temporal;
@@ -70,45 +71,47 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 	static Logger logger = LoggerFactory.getLogger(OCPPMeterValueServiceImpl.class);
-	
+
 	ObjectMapper objectMapper = new ObjectMapper();
-	
+
+//	private ConcurrentHashMap<String, SessionBillableValues> sessionValues = new ConcurrentHashMap<>();
+
 	@Autowired
 	private ExecuteRepository executeRepository;
-	
+
 	@Autowired
 	private OCPPDeviceDetailsService ocppDeviceDetailsService;
-	
+
 	@Value("${ocpi.url}")
 	private String ocpiUrl;
-	
+
 	@Autowired
 	private RestTemplate restTemplate;
-	
+
 	@Autowired
 	private EsLoggerUtil esLoggerUtil;
-	
+
 	@Autowired
 	private StationService stationService;
-	
+
 	@Autowired
 	private currencyConversionService crncyConversionService;
-	
+
 	@Autowired
 	private paymentService paymentService;
-	
+
 	@Autowired
 	private  GeneralDao<?, ?> generalDao;
-	
+
 	@Autowired
 	private propertiesServiceImpl propertiesServiceImpl;
-	
+
 	@Autowired
 	private CurrencyConversion currencyConversion;
-	
+
 	@Autowired
 	private smsIntegration smsIntegrationImpl;
-	
+
 	@Value("${kWh.Alert}")
 	protected double kWhAlert;
 
@@ -117,34 +120,34 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 
 	@Value("${revenue.Alert}")
 	protected double revenueAlert;
-	
+
 	@Value("${mobileServerUrl}")
 	protected String mobileServerUrl;
-	
+
 	@Value("${mobileAuthKey}")
 	private String mobileAuthKey;
-	
+
 	@Autowired
 	private LoggerUtil customLogger;
-	
+
 	@Autowired
 	private OCPPAccountAndCredentialService OCPPAccountAndCredentialService;
-	
+
 	@Autowired
 	private OCPPDeviceDetailsService OCPPDeviceDetailsService;
-	
+
 	@Autowired
 	public PushNotification pushNotification;
-	
+
 	@Autowired
 	private Utils utils;
-	
+
 	@Autowired
 	private alertsService alertsService;
-	
+
 	@Autowired
 	private ocppUserService ocppUserService;
-	
+
 	@Override
 	public Map<String,Object> getPreviousSessionData(String sessionId){
 		Map<String,Object> sessionData = new HashMap<>();
@@ -160,7 +163,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return sessionData;
 	}
-	
+
 	@Override
 	public SessionImportedValues billing(SessionImportedValues siv) {
 		try {
@@ -168,11 +171,12 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			if(siv.getSesspricings()!=null) {
 				siv.setCost_pricings(siv.getSesspricings().getCost_info());
 			}
+			System.err.println(txnData.getMinkWhEnergy() + " & " + siv.getTotalKwUsed());
 			if(txnData != null && Double.parseDouble(String.valueOf(siv.getTotalKwUsed()))>txnData.getMinkWhEnergy()) {
 				if(txnData != null && txnData.getBillingCases() != null && txnData.getBillingCases().equalsIgnoreCase("TOU")) {
 					siv = touBilling(siv);
 				}else if(txnData != null && txnData.getBillingCases().equalsIgnoreCase("Freeven")){
-					
+
 				}else if(txnData != null && txnData.getBillingCases().equalsIgnoreCase("TOU+Free")) {
 					if(txnData.getDriverGroupId() > 0) {
 						siv = freeChargingForDriverGrp(siv);
@@ -194,112 +198,112 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return siv;
 	}
-	
+
 	@Override
 	public SessionImportedValues touBilling(SessionImportedValues siv) {
 		try {
-			 BigDecimal finalCost=new BigDecimal("0.0");
-			 BigDecimal finalCostWithVat=new BigDecimal("0.0");
-			 if(siv.getTxnData().getBillingCases()!= null) {
-				 try {
-					 if(siv.getTxnData().getTariff_prices()!=null) {
-						 JsonNode tariff = objectMapper.readTree(siv.getTxnData().getTariff_prices());
-						 List<Map<String,Object>> tariffLs = new ArrayList<>();
-						 if(tariff.size() > 0) {
-							 Map<String,Object> tariffMap = new HashMap<>();
-							 tariffMap.put("tariffId", tariff.get(0).get("tariffId"));
-							 tariffMap.put("max_price_id", tariff.get(0).get("max_price_id"));
-							 tariffMap.put("min_price_id", tariff.get(0).get("min_price_id"));
-							 tariffMap.put("tariffName", tariff.get(0).get("tariffName"));
-							 tariffMap.put("startTime", tariff.get(0).get("startTime"));
-							 tariffMap.put("endTime", tariff.get(0).get("endTime"));
-							 JsonNode prices = objectMapper.readTree(String.valueOf(tariff.get(0).get("cost_info")));
-							 List<Map<String,Object>> pricesLs = new ArrayList<>();
-							 if(prices.size() > 0) {
-								 JsonNode aditional = objectMapper.readTree(String.valueOf(prices.get(0).get("aditional")));
-								 Map<String,Object> costInfo = new HashMap<>();
-								 Map<String,Object> aditionalSubMap = new HashMap<>();
-								 String rateRiderType="";
-								 BigDecimal rateRiderPercent=new BigDecimal(0.00);
-								 BigDecimal rateRiderAmt=new BigDecimal(0.00);
-								 Map<String,Object> rateRiderMap = new HashMap<>();
-								 Map<String,Object> idleChargeMap = new HashMap<>();
-								 
-								 List<Map<String,Object>> taxls = new ArrayList<>();
-								 if(aditional.size() > 0) {
-									 JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
-									 if(rateRider.size() > 0) {
-										 rateRiderType = rateRider.get("type").asText();
-										 rateRiderPercent = new BigDecimal(String.valueOf(rateRider.get("percnt").asDouble()));
-										 rateRiderMap.put("type", rateRiderType);
-										 rateRiderMap.put("percnt", rateRiderPercent);
-										 rateRiderMap.put("restrictionType", "Rate Rider");
-										 rateRiderMap.put("amount", 0);
-										 aditionalSubMap.put("rateRider", rateRiderMap);
-									 }
-									 JsonNode taxJsonLs = objectMapper.readTree(String.valueOf(aditional.get("tax")));
-									 if(taxJsonLs.size() > 0) {
-										 for(int i=0;i < taxJsonLs.size();i++) {
-											 JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxJsonLs.get(i)));
-											 if(taxJsonMap.size() > 0) {
-												 Map<String,Object> taxSubMap = new HashMap<>();
-												 String name = taxJsonMap.get("name").asText();
-												 BigDecimal taxPercent = new BigDecimal(taxJsonMap.get("percnt").asText());
-												 taxSubMap.put("name", name);
-												 taxSubMap.put("percnt", taxPercent);
-												 taxSubMap.put("restrictionType", "TAX");
-												 taxSubMap.put("amount", 0.00);
-												 taxSubMap.put("idleAmount", 0.00);
-												 taxSubMap.put("chargingAmount", 0.00);
-												 taxls.add(taxSubMap);
-											 }
-										 }
-										 aditionalSubMap.put("tax", taxls);
-									 }
-									 JsonNode idleCharge = objectMapper.readTree(String.valueOf(aditional.get("idleCharge")));
-									 if(idleCharge.size() > 0) {
-										 idleChargeMap.put("price", idleCharge.get("price").asDouble());
-										 idleChargeMap.put("step", idleCharge.get("step").asDouble());
-										 idleChargeMap.put("type", idleCharge.get("type").asText());
-										 idleChargeMap.put("gracePeriod", idleCharge.get("gracePeriod").asDouble());
-										 idleChargeMap.put("restrictionType", "Idle Charge");
-										 idleChargeMap.put("inActiveCost", 0.0);
-										 idleChargeMap.put("inActiveduration", 0.0);
-										 if(!String.valueOf(siv.getTxnData().getIdleStatus()).equalsIgnoreCase("Available")) {
-											 siv.setIdleBilling(true);
-										 }
-									 }
-								 }
-								 
-								 
-								 JsonNode standard = objectMapper.readTree(String.valueOf(prices.get(0).get("standard")));
-								 Map<String,Object> standardSubMap = new HashMap<>();
-								 if(standard.size() > 0) {
-									 BigDecimal maximumRevenue=siv.getTxnData().getMaximumRevenue()>0 ?new BigDecimal(String.valueOf(siv.getTxnData().getMaximumRevenue())) : new BigDecimal("150");
-									 maximumRevenue=maximumRevenue.setScale(2, RoundingMode.HALF_UP);
-									 JsonNode time = objectMapper.readTree(String.valueOf(standard.get("time")));
-									 if(time.size() > 0) {
-										 BigDecimal timeCost=new BigDecimal(0.00);
-										 Map<String,Object> timeMap = new HashMap<>();
-										 double price = time.get("price").asDouble();
-										 double step = time.get("step").asDouble();
-										 BigDecimal tax_excl = new BigDecimal(time.get("tax_excl").asText());
-										 BigDecimal tax_incl = new BigDecimal(time.get("tax_incl").asText());
-										 BigDecimal vatAmt = new BigDecimal(0.00);
-										 BigDecimal taxAmt = new BigDecimal(0.00);
-										 BigDecimal totalTaxPer=new BigDecimal("0");
-										 siv.setVendingPrice(price);
-										 if(step == 3600) {
-											 siv.setVendingUnit("Hr");
-											 tax_incl = tax_excl = timeCost = (siv.getBillSessionDuration().divide(new BigDecimal(60),9, RoundingMode.HALF_UP).multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
-										 }else {
-											 siv.setVendingUnit("Min");
-											 tax_incl = tax_excl = timeCost = (siv.getBillSessionDuration().multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
-										 }
-										 
-										 for(Map<String, Object> map : taxls) {
-											 totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
-										 }
+			BigDecimal finalCost=new BigDecimal("0.0");
+			BigDecimal finalCostWithVat=new BigDecimal("0.0");
+			if(siv.getTxnData().getBillingCases()!= null) {
+				try {
+					if(siv.getTxnData().getTariff_prices()!=null) {
+						JsonNode tariff = objectMapper.readTree(siv.getTxnData().getTariff_prices());
+						List<Map<String,Object>> tariffLs = new ArrayList<>();
+						if(tariff.size() > 0) {
+							Map<String,Object> tariffMap = new HashMap<>();
+							tariffMap.put("tariffId", tariff.get(0).get("tariffId"));
+							tariffMap.put("max_price_id", tariff.get(0).get("max_price_id"));
+							tariffMap.put("min_price_id", tariff.get(0).get("min_price_id"));
+							tariffMap.put("tariffName", tariff.get(0).get("tariffName"));
+							tariffMap.put("startTime", tariff.get(0).get("startTime"));
+							tariffMap.put("endTime", tariff.get(0).get("endTime"));
+							JsonNode prices = objectMapper.readTree(String.valueOf(tariff.get(0).get("cost_info")));
+							List<Map<String,Object>> pricesLs = new ArrayList<>();
+							if(prices.size() > 0) {
+								JsonNode aditional = objectMapper.readTree(String.valueOf(prices.get(0).get("aditional")));
+								Map<String,Object> costInfo = new HashMap<>();
+								Map<String,Object> aditionalSubMap = new HashMap<>();
+								String rateRiderType="";
+								BigDecimal rateRiderPercent=new BigDecimal(0.00);
+								BigDecimal rateRiderAmt=new BigDecimal(0.00);
+								Map<String,Object> rateRiderMap = new HashMap<>();
+								Map<String,Object> idleChargeMap = new HashMap<>();
+
+								List<Map<String,Object>> taxls = new ArrayList<>();
+								if(aditional.size() > 0) {
+									JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
+									if(rateRider.size() > 0) {
+										rateRiderType = rateRider.get("type").asText();
+										rateRiderPercent = new BigDecimal(String.valueOf(rateRider.get("percnt").asDouble()));
+										rateRiderMap.put("type", rateRiderType);
+										rateRiderMap.put("percnt", rateRiderPercent);
+										rateRiderMap.put("restrictionType", "Rate Rider");
+										rateRiderMap.put("amount", 0);
+										aditionalSubMap.put("rateRider", rateRiderMap);
+									}
+									JsonNode taxJsonLs = objectMapper.readTree(String.valueOf(aditional.get("tax")));
+									if(taxJsonLs.size() > 0) {
+										for(int i=0;i < taxJsonLs.size();i++) {
+											JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxJsonLs.get(i)));
+											if(taxJsonMap.size() > 0) {
+												Map<String,Object> taxSubMap = new HashMap<>();
+												String name = taxJsonMap.get("name").asText();
+												BigDecimal taxPercent = new BigDecimal(taxJsonMap.get("percnt").asText());
+												taxSubMap.put("name", name);
+												taxSubMap.put("percnt", taxPercent);
+												taxSubMap.put("restrictionType", "TAX");
+												taxSubMap.put("amount", 0.00);
+												taxSubMap.put("idleAmount", 0.00);
+												taxSubMap.put("chargingAmount", 0.00);
+												taxls.add(taxSubMap);
+											}
+										}
+										aditionalSubMap.put("tax", taxls);
+									}
+									JsonNode idleCharge = objectMapper.readTree(String.valueOf(aditional.get("idleCharge")));
+									if(idleCharge.size() > 0) {
+										idleChargeMap.put("price", idleCharge.get("price").asDouble());
+										idleChargeMap.put("step", idleCharge.get("step").asDouble());
+										idleChargeMap.put("type", idleCharge.get("type").asText());
+										idleChargeMap.put("gracePeriod", idleCharge.get("gracePeriod").asDouble());
+										idleChargeMap.put("restrictionType", "Idle Charge");
+										idleChargeMap.put("inActiveCost", 0.0);
+										idleChargeMap.put("inActiveduration", 0.0);
+										if(!String.valueOf(siv.getTxnData().getIdleStatus()).equalsIgnoreCase("Available")) {
+											siv.setIdleBilling(true);
+										}
+									}
+								}
+
+
+								JsonNode standard = objectMapper.readTree(String.valueOf(prices.get(0).get("standard")));
+								Map<String,Object> standardSubMap = new HashMap<>();
+								if(standard.size() > 0) {
+									BigDecimal maximumRevenue=siv.getTxnData().getMaximumRevenue()>0 ?new BigDecimal(String.valueOf(siv.getTxnData().getMaximumRevenue())) : new BigDecimal("150");
+									maximumRevenue=maximumRevenue.setScale(2, RoundingMode.HALF_UP);
+									JsonNode time = objectMapper.readTree(String.valueOf(standard.get("time")));
+									if(time.size() > 0) {
+										BigDecimal timeCost=new BigDecimal(0.00);
+										Map<String,Object> timeMap = new HashMap<>();
+										double price = time.get("price").asDouble();
+										double step = time.get("step").asDouble();
+										BigDecimal tax_excl = new BigDecimal(time.get("tax_excl").asText());
+										BigDecimal tax_incl = new BigDecimal(time.get("tax_incl").asText());
+										BigDecimal vatAmt = new BigDecimal(0.00);
+										BigDecimal taxAmt = new BigDecimal(0.00);
+										BigDecimal totalTaxPer=new BigDecimal("0");
+										siv.setVendingPrice(price);
+										if(step == 3600) {
+											siv.setVendingUnit("Hr");
+											tax_incl = tax_excl = timeCost = (siv.getBillSessionDuration().divide(new BigDecimal(60),9, RoundingMode.HALF_UP).multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
+										}else {
+											siv.setVendingUnit("Min");
+											tax_incl = tax_excl = timeCost = (siv.getBillSessionDuration().multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
+										}
+
+										for(Map<String, Object> map : taxls) {
+											totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
+										}
 										if(totalTaxPer.doubleValue()>0 && timeCost.doubleValue()>0) {
 											BigDecimal multiply = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(totalTaxPer)).setScale(2, RoundingMode.HALF_UP);
 											BigDecimal finalCostStore=multiply.add(timeCost);
@@ -308,73 +312,73 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 												timeCost=costWithoutTax.setScale(2, RoundingMode.HALF_UP);
 											}
 										}
-										 if(timeCost.doubleValue()>=maximumRevenue.doubleValue()) {
-											 timeCost=maximumRevenue;
-											 tax_incl = tax_excl = timeCost;
-											 maximumRevenue=new BigDecimal("0");
-										 }else {
-											 maximumRevenue=maximumRevenue.subtract(timeCost);
-											 tax_incl = tax_excl = timeCost;
-										 }
-										 finalCost=finalCost.add(timeCost);
-										 if(rateRiderType.equalsIgnoreCase("-ve")) {
-											 vatAmt = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 timeCost = timeCost.subtract(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = timeCost;
-											 tax_incl = timeCost;
-										 }else if(rateRiderType.equalsIgnoreCase("+ve")){
-											 vatAmt = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 timeCost = timeCost.add(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = timeCost;
-											 tax_incl = timeCost;
-										 }
-										 List<Map<String,Object>> taxLsTemp = new ArrayList<>();
-										 for(Map<String, Object> map : taxls) {
-											 Map<String,Object> temp = new HashMap<>();
-											 BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
-											 BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
-											 BigDecimal multiply = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
-											 taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);
-											 taxAmount = taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);
-											 temp.put("percnt", map.get("percnt"));
-											 temp.put("name", map.get("name"));
-											 temp.put("restrictionType", "TAX");
-											 temp.put("amount", taxAmount);
-											 temp.put("idleAmount", 0.00);
-											 temp.put("chargingAmount", taxAmount);
-											 taxLsTemp.add(temp);
-										 }
-										 tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);
-										 taxls.clear();
-										 taxls = taxLsTemp;
-										 timeMap.put("price", price);
-										 timeMap.put("step", step);
-										 timeMap.put("type", "Time");
-										 timeMap.put("tax_excl", tax_excl);
-										 timeMap.put("tax_incl", tax_incl);
-										 standardSubMap.put("time", timeMap);
-									 }
-									 JsonNode energy = objectMapper.readTree(String.valueOf(standard.get("energy")));
-									 if(energy.size() > 0) {
-										 BigDecimal energyCost=new BigDecimal("0.0");
-										 Map<String,Object> energyMap = new HashMap<>();
-										 double price = energy.get("price").asDouble();
-										 double step = energy.get("step").asDouble();
-										 BigDecimal tax_excl = new BigDecimal(energy.get("tax_excl").asText());
-										 BigDecimal tax_incl = new BigDecimal(energy.get("tax_incl").asText());
-										 BigDecimal totalTaxPer=new BigDecimal("0");
-										 siv.setVendingPrice(price);
-										 if(step == 3600) {
-											 tax_incl = tax_excl = energyCost = (siv.getBillTotalKwUsed().divide(new BigDecimal(60),9, RoundingMode.HALF_UP).multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
-										 }else {
-											 tax_incl = tax_excl = energyCost = (siv.getBillTotalKwUsed().multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
-										 }
-										 siv.setVendingUnit("kWh");
-										 for(Map<String, Object> map : taxls) {
-											 totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
-										 }
+										if(timeCost.doubleValue()>=maximumRevenue.doubleValue()) {
+											timeCost=maximumRevenue;
+											tax_incl = tax_excl = timeCost;
+											maximumRevenue=new BigDecimal("0");
+										}else {
+											maximumRevenue=maximumRevenue.subtract(timeCost);
+											tax_incl = tax_excl = timeCost;
+										}
+										finalCost=finalCost.add(timeCost);
+										if(rateRiderType.equalsIgnoreCase("-ve")) {
+											vatAmt = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											timeCost = timeCost.subtract(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = timeCost;
+											tax_incl = timeCost;
+										}else if(rateRiderType.equalsIgnoreCase("+ve")){
+											vatAmt = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											timeCost = timeCost.add(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = timeCost;
+											tax_incl = timeCost;
+										}
+										List<Map<String,Object>> taxLsTemp = new ArrayList<>();
+										for(Map<String, Object> map : taxls) {
+											Map<String,Object> temp = new HashMap<>();
+											BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
+											BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
+											BigDecimal multiply = (timeCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
+											taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);
+											taxAmount = taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);
+											temp.put("percnt", map.get("percnt"));
+											temp.put("name", map.get("name"));
+											temp.put("restrictionType", "TAX");
+											temp.put("amount", taxAmount);
+											temp.put("idleAmount", 0.00);
+											temp.put("chargingAmount", taxAmount);
+											taxLsTemp.add(temp);
+										}
+										tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);
+										taxls.clear();
+										taxls = taxLsTemp;
+										timeMap.put("price", price);
+										timeMap.put("step", step);
+										timeMap.put("type", "Time");
+										timeMap.put("tax_excl", tax_excl);
+										timeMap.put("tax_incl", tax_incl);
+										standardSubMap.put("time", timeMap);
+									}
+									JsonNode energy = objectMapper.readTree(String.valueOf(standard.get("energy")));
+									if(energy.size() > 0) {
+										BigDecimal energyCost=new BigDecimal("0.0");
+										Map<String,Object> energyMap = new HashMap<>();
+										double price = energy.get("price").asDouble();
+										double step = energy.get("step").asDouble();
+										BigDecimal tax_excl = new BigDecimal(energy.get("tax_excl").asText());
+										BigDecimal tax_incl = new BigDecimal(energy.get("tax_incl").asText());
+										BigDecimal totalTaxPer=new BigDecimal("0");
+										siv.setVendingPrice(price);
+										if(step == 3600) {
+											tax_incl = tax_excl = energyCost = (siv.getBillTotalKwUsed().divide(new BigDecimal(60),9, RoundingMode.HALF_UP).multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
+										}else {
+											tax_incl = tax_excl = energyCost = (siv.getBillTotalKwUsed().multiply(new BigDecimal(price))).setScale(2, RoundingMode.HALF_UP);
+										}
+										siv.setVendingUnit("kWh");
+										for(Map<String, Object> map : taxls) {
+											totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
+										}
 										if(totalTaxPer.doubleValue()>0 && energyCost.doubleValue()>0) {
 											BigDecimal multiply = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(totalTaxPer)).setScale(2, RoundingMode.HALF_UP);
 											BigDecimal finalCostStore=multiply.add(energyCost);
@@ -384,159 +388,159 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 											}
 										}
 										energyCost=energyCost.setScale(2, RoundingMode.HALF_UP);
-										 if(energyCost.doubleValue()>=maximumRevenue.doubleValue()) {
-											 energyCost=maximumRevenue;
-											 tax_incl = tax_excl = energyCost;
-											 maximumRevenue=new BigDecimal("0");
-										 }else {
-											 tax_incl = tax_excl = energyCost;
-											 maximumRevenue=maximumRevenue.subtract(energyCost);
-										 }
-										 finalCost=finalCost.add(energyCost);
-										 BigDecimal vatAmt = new BigDecimal(0.00);
-										 BigDecimal taxAmt = new BigDecimal(0.00);
-										 if(rateRiderType.equalsIgnoreCase("-ve")) {
-											 vatAmt = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 energyCost = energyCost.subtract(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = energyCost;
-											 tax_incl = energyCost;
-										 }else if(rateRiderType.equalsIgnoreCase("+ve")){
-											 vatAmt = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 energyCost =energyCost.add(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = energyCost;
-											 tax_incl = energyCost;
-										 }
-										 List<Map<String,Object>> taxLsTemp = new ArrayList<>();
-										 for(Map<String, Object> map : taxls) {
-											 Map<String,Object> temp = new HashMap<>();
-											 BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
-											 BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
-											 BigDecimal multiply = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
-											 taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);
-											 taxAmount = taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);
-											 temp.put("percnt", map.get("percnt"));
-											 temp.put("name", map.get("name"));
-											 temp.put("restrictionType", "TAX");
-											 temp.put("amount", taxAmount);
-											 temp.put("idleAmount", 0.00);
-											 temp.put("chargingAmount", taxAmount);
-											 taxLsTemp.add(temp);
-										 }
-										 tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);
-										 taxls.clear();
-										 taxls = taxLsTemp;
-										 energyMap.put("price", price);
-										 energyMap.put("type", "Energy");
-										 energyMap.put("tax_excl", tax_excl);
-										 energyMap.put("tax_incl", tax_incl);
-										 standardSubMap.put("energy", energyMap);
-									 }
-									 
-									 JsonNode flat = objectMapper.readTree(String.valueOf(standard.get("flat")));
-									 if(flat.size() > 0 && finalCost.doubleValue() > 0) {
-										 BigDecimal flatCost=new BigDecimal("0.0");
-										 Map<String,Object> flatMap = new HashMap<>();
-										 double price = flat.get("price").asDouble();
-										 BigDecimal tax_excl = new BigDecimal(flat.get("tax_excl").asText());
-										 BigDecimal tax_incl = new BigDecimal(flat.get("tax_incl").asText());
-										 tax_incl = tax_excl = flatCost = new BigDecimal(price).setScale(2,RoundingMode.HALF_UP);
-										 BigDecimal vatAmt = new BigDecimal(0.00);
-										 BigDecimal taxAmt = new BigDecimal(0.00);
-										 BigDecimal totalTaxPer=new BigDecimal("0");
-										 finalCost=finalCost.add(flatCost);
-										 if(rateRiderType.equalsIgnoreCase("-ve")) {
-											 vatAmt = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 flatCost =flatCost.subtract(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = flatCost;
-											 tax_incl = flatCost;
-										 }else if(rateRiderType.equalsIgnoreCase("+ve")){
-											 vatAmt = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
-											 flatCost = flatCost.add(vatAmt);
-											 rateRiderAmt = rateRiderAmt.add(vatAmt);
-											 tax_excl = flatCost;
-											 tax_incl = flatCost;
-										 }
-										 for(Map<String, Object> map : taxls) {
-											 totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
-										 }
-										 if(totalTaxPer.doubleValue()>0 && flatCost.doubleValue()>0) {
-												BigDecimal multiply = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(totalTaxPer)).setScale(2, RoundingMode.HALF_UP);
-												BigDecimal finalCostStore=multiply.add(flatCost);
-												if(finalCostStore.doubleValue()>maximumRevenue.doubleValue()) {
-													BigDecimal costWithoutTax=(new BigDecimal(String.valueOf("100")).multiply(maximumRevenue)).divide(new BigDecimal(String.valueOf("100")).add(totalTaxPer), 2, RoundingMode.HALF_UP);
-													flatCost=costWithoutTax;
-												}
+										if(energyCost.doubleValue()>=maximumRevenue.doubleValue()) {
+											energyCost=maximumRevenue;
+											tax_incl = tax_excl = energyCost;
+											maximumRevenue=new BigDecimal("0");
+										}else {
+											tax_incl = tax_excl = energyCost;
+											maximumRevenue=maximumRevenue.subtract(energyCost);
+										}
+										finalCost=finalCost.add(energyCost);
+										BigDecimal vatAmt = new BigDecimal(0.00);
+										BigDecimal taxAmt = new BigDecimal(0.00);
+										if(rateRiderType.equalsIgnoreCase("-ve")) {
+											vatAmt = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											energyCost = energyCost.subtract(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = energyCost;
+											tax_incl = energyCost;
+										}else if(rateRiderType.equalsIgnoreCase("+ve")){
+											vatAmt = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											energyCost =energyCost.add(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = energyCost;
+											tax_incl = energyCost;
+										}
+										List<Map<String,Object>> taxLsTemp = new ArrayList<>();
+										for(Map<String, Object> map : taxls) {
+											Map<String,Object> temp = new HashMap<>();
+											BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
+											BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
+											BigDecimal multiply = (energyCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
+											taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);
+											taxAmount = taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);
+											temp.put("percnt", map.get("percnt"));
+											temp.put("name", map.get("name"));
+											temp.put("restrictionType", "TAX");
+											temp.put("amount", taxAmount);
+											temp.put("idleAmount", 0.00);
+											temp.put("chargingAmount", taxAmount);
+											taxLsTemp.add(temp);
+										}
+										tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);
+										taxls.clear();
+										taxls = taxLsTemp;
+										energyMap.put("price", price);
+										energyMap.put("type", "Energy");
+										energyMap.put("tax_excl", tax_excl);
+										energyMap.put("tax_incl", tax_incl);
+										standardSubMap.put("energy", energyMap);
+									}
+
+									JsonNode flat = objectMapper.readTree(String.valueOf(standard.get("flat")));
+									if(flat.size() > 0 && finalCost.doubleValue() > 0) {
+										BigDecimal flatCost=new BigDecimal("0.0");
+										Map<String,Object> flatMap = new HashMap<>();
+										double price = flat.get("price").asDouble();
+										BigDecimal tax_excl = new BigDecimal(flat.get("tax_excl").asText());
+										BigDecimal tax_incl = new BigDecimal(flat.get("tax_incl").asText());
+										tax_incl = tax_excl = flatCost = new BigDecimal(price).setScale(2,RoundingMode.HALF_UP);
+										BigDecimal vatAmt = new BigDecimal(0.00);
+										BigDecimal taxAmt = new BigDecimal(0.00);
+										BigDecimal totalTaxPer=new BigDecimal("0");
+										finalCost=finalCost.add(flatCost);
+										if(rateRiderType.equalsIgnoreCase("-ve")) {
+											vatAmt = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											flatCost =flatCost.subtract(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = flatCost;
+											tax_incl = flatCost;
+										}else if(rateRiderType.equalsIgnoreCase("+ve")){
+											vatAmt = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(rateRiderPercent)).setScale(2, RoundingMode.HALF_UP);
+											flatCost = flatCost.add(vatAmt);
+											rateRiderAmt = rateRiderAmt.add(vatAmt);
+											tax_excl = flatCost;
+											tax_incl = flatCost;
+										}
+										for(Map<String, Object> map : taxls) {
+											totalTaxPer=totalTaxPer.add(new BigDecimal(String.valueOf(map.get("percnt"))));
+										}
+										if(totalTaxPer.doubleValue()>0 && flatCost.doubleValue()>0) {
+											BigDecimal multiply = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(totalTaxPer)).setScale(2, RoundingMode.HALF_UP);
+											BigDecimal finalCostStore=multiply.add(flatCost);
+											if(finalCostStore.doubleValue()>maximumRevenue.doubleValue()) {
+												BigDecimal costWithoutTax=(new BigDecimal(String.valueOf("100")).multiply(maximumRevenue)).divide(new BigDecimal(String.valueOf("100")).add(totalTaxPer), 2, RoundingMode.HALF_UP);
+												flatCost=costWithoutTax;
 											}
-										 if(flatCost.doubleValue()>=maximumRevenue.doubleValue()) {
-											 flatCost=maximumRevenue;
-											 tax_incl = tax_excl = flatCost;
-											 maximumRevenue=new BigDecimal("0");
-										 }else {
-											 tax_incl = tax_excl = flatCost;
-											 maximumRevenue=maximumRevenue.subtract(flatCost);
-										 }
-										 flatCost=flatCost.setScale(2, RoundingMode.HALF_UP);
-										 List<Map<String,Object>> taxLsTemp = new ArrayList<>();
-										 for(Map<String, Object> map : taxls) {
-											 Map<String,Object> temp = new HashMap<>();
-											 BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
-											 BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
-											 BigDecimal multiply = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
-											 taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);;
-											 taxAmount= taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);;
-											 temp.put("percnt", map.get("percnt"));
-											 temp.put("name", map.get("name"));
-											 temp.put("restrictionType", "TAX");
-											 temp.put("amount", taxAmount);
-											 temp.put("idleAmount", 0.00);
-											 temp.put("chargingAmount", taxAmount);
-											 taxLsTemp.add(temp);
-										 }
-										 tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);;
-										 taxls.clear();
-										 taxls = taxLsTemp;
-										 flatMap.put("price", price);
-										 flatMap.put("type", "Flat");
-										 flatMap.put("tax_excl", tax_excl);
-										 flatMap.put("tax_incl", tax_incl);
-										 standardSubMap.put("flat", flatMap);
-									 }
-									 costInfo.put("standard", standardSubMap);
-								 }
-								 
-								 if(aditional.size() > 0) {
-									 JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
-									 finalCostWithVat = finalCost;
-									 if(rateRider.size() > 0) {
-										 rateRiderAmt=rateRiderAmt.setScale(2, RoundingMode.HALF_UP);
-										 rateRiderMap.put("amount", rateRiderAmt);
-										 if(rateRiderType.equalsIgnoreCase("-ve")) {
-											 finalCostWithVat = finalCostWithVat.subtract(rateRiderAmt);
-										 }else if(rateRiderType.equalsIgnoreCase("+ve")){
-											 finalCostWithVat = finalCostWithVat.add(rateRiderAmt);
-										 }
-									 }
-									 List<Map<String,Object>> taxls1 = new ArrayList<>();
-									 for(Map<String,Object> map : taxls) {
-										 Map<String,Object> temp = new HashMap<>();
-										 temp = map;
-										 BigDecimal amount=new BigDecimal(String.valueOf(map.get("amount"))).setScale(2, RoundingMode.HALF_UP);
-										 if(siv.isIdleBilling()) {
-											 temp.put("amount",  amount);
-											 temp.put("idleAmount", 0.00);
-											 temp.put("chargingAmount", amount);
-										 }else {
-											 temp.put("amount", amount);
-											 temp.put("idleAmount", 0.00);
-											 temp.put("chargingAmount", amount);
-										 }
-										 temp.put("amount", amount);
-										 finalCostWithVat = finalCostWithVat.add(amount);
-										 taxls1.add(temp);
-									 }
+										}
+										if(flatCost.doubleValue()>=maximumRevenue.doubleValue()) {
+											flatCost=maximumRevenue;
+											tax_incl = tax_excl = flatCost;
+											maximumRevenue=new BigDecimal("0");
+										}else {
+											tax_incl = tax_excl = flatCost;
+											maximumRevenue=maximumRevenue.subtract(flatCost);
+										}
+										flatCost=flatCost.setScale(2, RoundingMode.HALF_UP);
+										List<Map<String,Object>> taxLsTemp = new ArrayList<>();
+										for(Map<String, Object> map : taxls) {
+											Map<String,Object> temp = new HashMap<>();
+											BigDecimal taxAmount = new BigDecimal(String.valueOf(map.get("amount")));
+											BigDecimal taxPercent = new BigDecimal(String.valueOf(map.get("percnt")));
+											BigDecimal multiply = (flatCost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
+											taxAmt = taxAmt.add(multiply).setScale(2, RoundingMode.HALF_UP);;
+											taxAmount= taxAmount.add(multiply).setScale(2, RoundingMode.HALF_UP);;
+											temp.put("percnt", map.get("percnt"));
+											temp.put("name", map.get("name"));
+											temp.put("restrictionType", "TAX");
+											temp.put("amount", taxAmount);
+											temp.put("idleAmount", 0.00);
+											temp.put("chargingAmount", taxAmount);
+											taxLsTemp.add(temp);
+										}
+										tax_incl = tax_incl.add(taxAmt).setScale(2, RoundingMode.HALF_UP);;
+										taxls.clear();
+										taxls = taxLsTemp;
+										flatMap.put("price", price);
+										flatMap.put("type", "Flat");
+										flatMap.put("tax_excl", tax_excl);
+										flatMap.put("tax_incl", tax_incl);
+										standardSubMap.put("flat", flatMap);
+									}
+									costInfo.put("standard", standardSubMap);
+								}
+
+								if(aditional.size() > 0) {
+									JsonNode rateRider = objectMapper.readTree(String.valueOf(aditional.get("rateRider")));
+									finalCostWithVat = finalCost;
+									if(rateRider.size() > 0) {
+										rateRiderAmt=rateRiderAmt.setScale(2, RoundingMode.HALF_UP);
+										rateRiderMap.put("amount", rateRiderAmt);
+										if(rateRiderType.equalsIgnoreCase("-ve")) {
+											finalCostWithVat = finalCostWithVat.subtract(rateRiderAmt);
+										}else if(rateRiderType.equalsIgnoreCase("+ve")){
+											finalCostWithVat = finalCostWithVat.add(rateRiderAmt);
+										}
+									}
+									List<Map<String,Object>> taxls1 = new ArrayList<>();
+									for(Map<String,Object> map : taxls) {
+										Map<String,Object> temp = new HashMap<>();
+										temp = map;
+										BigDecimal amount=new BigDecimal(String.valueOf(map.get("amount"))).setScale(2, RoundingMode.HALF_UP);
+										if(siv.isIdleBilling()) {
+											temp.put("amount",  amount);
+											temp.put("idleAmount", 0.00);
+											temp.put("chargingAmount", amount);
+										}else {
+											temp.put("amount", amount);
+											temp.put("idleAmount", 0.00);
+											temp.put("chargingAmount", amount);
+										}
+										temp.put("amount", amount);
+										finalCostWithVat = finalCostWithVat.add(amount);
+										taxls1.add(temp);
+									}
 //									 JsonNode idleCharge = objectMapper.readTree(String.valueOf(aditional.get("idleCharge")));
 //									 if(idleCharge.size() > 0) {
 //										 Double lastkWh = Double.valueOf(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed")));
@@ -588,33 +592,33 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 //										 idleChargeMap.put("idleDuration", tempIdleMins.doubleValue());
 //										 idleChargeMap.put("idleCost", cost);
 //									 }
-									 aditionalSubMap.put("idle", idleChargeMap);
-									 aditionalSubMap.put("tax", taxls1);
-									 aditionalSubMap.put("rateRider", rateRiderMap);
-									 costInfo.put("aditional", aditionalSubMap);
-								 }else {
-									 finalCostWithVat = finalCost;
-								 }
-								 pricesLs.add(costInfo);
-								 logger.info(Thread.currentThread().getId()+"finalCost : "+finalCost);
-								 logger.info(Thread.currentThread().getId()+"finalCostWithVat : "+finalCostWithVat);
-								 finalCost=finalCost.setScale(2, RoundingMode.HALF_UP);
-								 finalCostWithVat=finalCostWithVat.setScale(2, RoundingMode.HALF_UP);
-								 siv.setFinalCosttostore(finalCost.doubleValue());
-								 siv.setFinalCostInslcCurrency(finalCostWithVat.doubleValue());
-								 siv.setNeedToDebit(siv.getFinalCostInslcCurrency());
-							 }
-							 tariffMap.put("cost_info", pricesLs);
-							 tariffLs.add(tariffMap);
-							 ObjectMapper objectMapper = new ObjectMapper();
-					         String json = objectMapper.writeValueAsString(tariffLs);
-							 siv.setCost_pricings(json);
-						 }
-					 }
-				 }catch (Exception e) {
+									aditionalSubMap.put("idle", idleChargeMap);
+									aditionalSubMap.put("tax", taxls1);
+									aditionalSubMap.put("rateRider", rateRiderMap);
+									costInfo.put("aditional", aditionalSubMap);
+								}else {
+									finalCostWithVat = finalCost;
+								}
+								pricesLs.add(costInfo);
+								logger.info(Thread.currentThread().getId()+"finalCost : "+finalCost);
+								logger.info(Thread.currentThread().getId()+"finalCostWithVat : "+finalCostWithVat);
+								finalCost=finalCost.setScale(2, RoundingMode.HALF_UP);
+								finalCostWithVat=finalCostWithVat.setScale(2, RoundingMode.HALF_UP);
+								siv.setFinalCosttostore(finalCost.doubleValue());
+								siv.setFinalCostInslcCurrency(finalCostWithVat.doubleValue());
+								siv.setNeedToDebit(siv.getFinalCostInslcCurrency());
+							}
+							tariffMap.put("cost_info", pricesLs);
+							tariffLs.add(tariffMap);
+							ObjectMapper objectMapper = new ObjectMapper();
+							String json = objectMapper.writeValueAsString(tariffLs);
+							siv.setCost_pricings(json);
+						}
+					}
+				}catch (Exception e) {
 					e.printStackTrace();
 				}
-			 }
+			}
 		}catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -630,7 +634,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return sessionpricings;
 	}
-	
+
 	@Override
 	public OCPPTransactionData getTxnData(OCPPStartTransaction startTxn) {
 		OCPPTransactionData txnData = null;
@@ -667,8 +671,8 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		logger.info(Thread.currentThread().getId()+""+stnRefNo + " , station free mins : " + freeChargeHrs);
 		return freeChargeHrs;
-	}	
-	
+	}
+
 	public Boolean getMaxSessionflag(String sessionId) {
 		try {
 			Boolean singleRecord = generalDao.getStationMaxSessionFlag("select isNull(maxSessionFlag,0) from Session where sessionId='" + sessionId + "'");
@@ -719,7 +723,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 	public Boolean getActiveTransactionId(Long TransactionId) {
 		Boolean val = false;
 		try {
-			
+
 			String query="select oa.* from ocpp_activeTransaction oa inner join ocpp_startTransaction os on os.transactionId = oa.transactionId where oa.transactionId='"+TransactionId+"' and os.transactionStatus = 'Accepted'";
 			List<Map<String, Object>> listData=executeRepository.findAll(query);
 			if(listData!=null && listData.size()>0) {
@@ -733,21 +737,21 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					val=false;
 				}
 			}
-			
-			
+
+
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		return val;
 	}
 	public OCPPActiveTransaction activeTransactions(long connectorId, long transactionId, long stationId, String msgType,
-			Long userId, String idTag, String sessionId, String sessionStatus, String status, String statusMobile,
-			double meterStart, String portalStation,String requestedID,String stnRfrNo,String appVersion,long orgId,String paymentType,String rewardType)  {
+													Long userId, String idTag, String sessionId, String sessionStatus, String status, String statusMobile,
+													double meterStart, String portalStation,String requestedID,String stnRfrNo,String appVersion,long orgId,String paymentType,String rewardType)  {
 		OCPPActiveTransaction activeTransactionObj = null;
 		try{
 			activeTransactionObj = generalDao.findOne("From OCPPActiveTransaction where connectorId=" + connectorId + " and " + "stationId ="
 					+ stationId + "and messageType='" + msgType + "' and userId =" + userId + " and Status in ('Accepted','Preparing','Charging') order by id desc", new OCPPActiveTransaction());
-			
+
 			if(activeTransactionObj==null) {
 				OCPPActiveTransaction ocppActiveTransaction = new OCPPActiveTransaction();
 				ocppActiveTransaction.setConnectorId(connectorId);
@@ -818,7 +822,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		return map;
 	}
 	public List<Map<String, Object>> previousMeterValuesData(String sessionId, Date startTransTimeStamp,
-			BigDecimal startTransactionMeterValue, String currentImportUnit, String stnRefNo) {
+															 BigDecimal startTransactionMeterValue, String currentImportUnit, String stnRefNo) {
 		List<Map<String, Object>> listMapData = new ArrayList<>();
 		try {
 			String hqlQuery = "select top 1 endTimeStamp as previousMeterEndTimeStamp,s.kilowattHoursUsed as previousMeterWattsecondsused,s.sameMeterValueCount as sameMeterValueCount, s.id as sessionId,isnull(s.creationDate,GETUTCDATE()) as creationDate,cost as cost,isnull(0.00,0) as currentImportValue ,isnull(powerActiveImport_value,0) as powerActiveImportValue,isnull(atx.amtDebit,0) as amtDebit,os.kWhAlert,os.revenueAlert, os.durationAlert,'false' as isFirstMeterReading,socStartVal,socEndVal,sessionElapsedInMin,avg_power,s.paymentMode as paymentType,os.promoCodeUsedTime,isnull(0.00,0) as userProcessingFee from session s inner join ocpp_sessionData os on s.sessionId =  os.sessionId left join account_transaction atx on s.accountTransaction_id = atx.id where os.sessionId='"
@@ -875,7 +879,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * additionalVendingPriceUnit=sessionImportedValues.
 		 * getAdditionalVendingPriceUnit(); String
 		 * portPriceUnit=sessionImportedValues.getPortPriceUnit();
-		 * 
+		 *
 		 * BigDecimal totalParallelPrice=new BigDecimal("0.0"); BigDecimal duration=new
 		 * BigDecimal("0.0"); if(!stationMode.equalsIgnoreCase("Freeven")) {
 		 * if(additionalVendingPriceUnit.equalsIgnoreCase("kWh")&&
@@ -892,20 +896,20 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * }if(additionalVendingPriceUnit.equalsIgnoreCase("Min")) {
 		 * totalParallelPrice=durationInMinutes.multiply(additionalVendingPricePerUnit);
 		 * } }
-		 * 
+		 *
 		 * } sessionImportedValues.setAdditionalVendingPriceUnit(
 		 * additionalVendingPriceUnit);
 		 * sessionImportedValues.setAdditionalVendingPricePerUnit(Double.parseDouble(
 		 * String.valueOf(additionalVendingPricePerUnit)));
 		 * sessionImportedValues.setTotalAdditionalPrice(Double.parseDouble(String.
 		 * valueOf(totalParallelPrice)));
-		 * 
+		 *
 		 * } catch (Exception e) { e.printStackTrace(); }
 		 */
 		return sessionImportedValues;
 
 	}
-	
+
 	public List<Map<String, Object>> getPreviousSessionsValues(String randomSessionId) {
 		List<Map<String, Object>> dataReturnMap = new ArrayList<Map<String, Object>>();
 
@@ -987,7 +991,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				List<Map<String,Object>> list=new ArrayList<Map<String,Object>>();
 				list.add(map);
 				siv.getTxnData().setReward(objectMapper.writeValueAsString(list));
-				
+
 				BigDecimal remainingkWh=new BigDecimal(String.valueOf(rewardkWh)).subtract(new BigDecimal(String.valueOf(map.get("usedkWh")))).setScale(4,RoundingMode.HALF_UP);
 				String update = "update promoCode_reward set kWh='"+remainingkWh+"' where userId="+Long.parseLong(String.valueOf(siv.getUserObj().get("UserId")));
 				executeRepository.update(update);
@@ -1028,15 +1032,15 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					map.put("usedAmount", rewardAmount);
 				}
 				map.put("lastUpdatedTime", utils.stringToDate(siv.getMeterValueTimeStatmp()));
-				
+
 				List<Map<String,Object>> list=new ArrayList<Map<String,Object>>();
 				list.add(map);
 				siv.getTxnData().setReward(objectMapper.writeValueAsString(list));
-				
+
 				String update = "update promoCode_reward set amount='"+remainingAmt+"' where userId="+Long.parseLong(String.valueOf(siv.getUserObj().get("UserId")));
 				executeRepository.update(update);
 			}
-			
+
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -1055,93 +1059,613 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return map;
 	}
-	
+
 	public SessionImportedValues freeChargingForDriverGrp(SessionImportedValues siv) {
 		try {
 			JsonNode freePrices = objectMapper.readTree(siv.getTxnData().getFree_prices());
 			if(freePrices.size() > 0) {
 				logger.info(Thread.currentThread().getId()+"freePrices : "+freePrices);
+				logger.info("Starting freeChargingForDriverGrp - Input free_prices: " + freePrices);
+				// Current free pricing limits
 				double freeKwh = freePrices.get(0).get("freeKwh").asDouble();
 				double freeMins = freePrices.get(0).get("freeMins").asDouble();
 				double usedFreeKwh = 0.00;
 				double usedFreeMins = 0.00;
-				String str = "select top 1 id,createdDate,userId,usedFreeMins,usedFreekWhs From freeChargingForDriverGrp Where userId='" + siv.getUserObj().get("UserId").asLong()+"' and createdDate='"+utils.getDate(siv.getMeterValueTimeStatmp())+"' order by id desc";
+				double remainingKwh = 0.00;
+				double remainingMins = 0.00;
+				double originalFreeKwh = 0.00;
+				double originalFreeMins = 0.00;
+				double usedAdditionalKwh = 0.00;
+				double usedAdditionalMins = 0.00;
+				double additionalFreeKwh = 0.00;
+				double additionalFreeMins = 0.00;
+
+				String chargeSessionId = siv.getChargeSessUniqId();
+				System.err.println(chargeSessionId);
+
+				String getCurrentSessionSql = "SELECT last_billable_kwh, last_billable_duration " +
+						"FROM ocpp_sessionBillableData " +
+						"WHERE charge_session_id = '" + chargeSessionId + "'";
+
+				List<Map<String, Object>> currentSessionValues = generalDao.getMapData(getCurrentSessionSql);
+
+				BigDecimal lastBillableKwh = null;
+				BigDecimal lastBillableDuration = null;
+
+				if (!currentSessionValues.isEmpty()) {
+					Map<String, Object> sessionValues = currentSessionValues.get(0);
+					lastBillableKwh = sessionValues.get("last_billable_kwh") != null ?
+							new BigDecimal(String.valueOf(sessionValues.get("last_billable_kwh"))) : null;
+					lastBillableDuration = sessionValues.get("last_billable_duration") != null ?
+							new BigDecimal(String.valueOf(sessionValues.get("last_billable_duration"))) : null;
+				} else {
+					String insertSql = "INSERT INTO ocpp_sessionBillableData " +
+							"(charge_session_id, created_date, updated_date, original_free_kwh, original_free_mins, " +
+							"used_additional_kwh, used_additional_mins, additional_free_kwh, additional_free_mins) " +
+							"VALUES ('" + chargeSessionId + "', '"+utils.getDate(siv.getMeterValueTimeStatmp())+"', '"+utils.getDate(siv.getMeterValueTimeStatmp())+"', '0', '0', '0', '0', '0', '0')";
+					executeRepository.update(insertSql);
+				}
+
+				logger.info("Initial setup - freeKwh: " + freeKwh + ", freeMins: " + freeMins);
+
+				String str = "select top 1 id,createdDate,userId,usedFreeMins,usedFreekWhs,remainingFreeKwh,remainingFreeMins " +
+						"From freeChargingForDriverGrp Where userId='" + siv.getUserObj().get("UserId").asLong() +
+						"' and createdDate='" + utils.getDate(siv.getMeterValueTimeStatmp()) + "' order by id desc";
+
 				List<Map<String, Object>> fcdg = generalDao.getMapData(str);
+
 				if(fcdg.size() > 0) {
-					usedFreeKwh = Double.valueOf(String.valueOf(freePrices.get(0).get("usedFreeKwhs")));
-					usedFreeMins = Double.valueOf(String.valueOf(freePrices.get(0).get("usedFreeMins")));
-					if(freeKwh > siv.getBillTotalKwUsed().doubleValue()) {
-						usedFreeKwh = usedFreeKwh + siv.getBillTotalKwUsed().doubleValue();
-						siv.setBillTotalKwUsed(new BigDecimal(0.00));
-					}else if(freeKwh < siv.getBillTotalKwUsed().doubleValue()){
-						usedFreeKwh = usedFreeKwh + freeKwh;
-						siv.setBillTotalKwUsed(new BigDecimal(siv.getBillTotalKwUsed().doubleValue() - freeKwh).setScale(4,RoundingMode.HALF_UP));
-					}else {
-						usedFreeKwh = usedFreeKwh + freeKwh;
-						siv.setBillTotalKwUsed(new BigDecimal(0.00));
+
+					usedFreeKwh = Double.valueOf(String.valueOf(fcdg.get(0).get("usedFreekWhs")));
+					usedFreeMins = Double.valueOf(String.valueOf(fcdg.get(0).get("usedFreeMins")));
+
+					// Get first transaction's original values and current session's values
+					String getOriginalValuesSql = "SELECT TOP 1 osb.original_free_kwh, osb.original_free_mins, " +
+							"osb.used_additional_kwh, osb.used_additional_mins " +
+							"FROM ocpp_sessionBillableData osb " +
+							"INNER JOIN freeChargingForDriverGrp fcdg ON fcdg.userId = '" + siv.getUserObj().get("UserId").asLong() + "' " +
+							"AND CAST(fcdg.createdDate AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "' " +
+							"WHERE CAST(osb.created_date AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "' " +
+							"ORDER BY osb.created_date ASC";
+
+					List<Map<String, Object>> originalValuesList = generalDao.getMapData(getOriginalValuesSql);
+
+					if (!originalValuesList.isEmpty()) {
+						Map<String, Object> originalValues = originalValuesList.get(0);
+						originalFreeKwh = originalValues.get("original_free_kwh") != null ?
+								((BigDecimal)originalValues.get("original_free_kwh")).doubleValue() : 0.00;
+						originalFreeMins = originalValues.get("original_free_mins") != null ?
+								((BigDecimal)originalValues.get("original_free_mins")).doubleValue() : 0.00;
+						usedAdditionalKwh = originalValues.get("used_additional_kwh") != null ?
+								((BigDecimal)originalValues.get("used_additional_kwh")).doubleValue() : 0.00;
+						usedAdditionalMins = originalValues.get("used_additional_mins") != null ?
+								((BigDecimal)originalValues.get("used_additional_mins")).doubleValue() : 0.00;
 					}
-					if(freeMins > siv.getBillSessionDuration().doubleValue()) {
-						usedFreeMins = usedFreeMins + siv.getBillSessionDuration().doubleValue();
-						siv.setBillSessionDuration(new BigDecimal(0.00));
-					}else if(freeMins < siv.getBillSessionDuration().doubleValue()){
-						usedFreeMins = usedFreeMins + freeMins;
-						siv.setBillSessionDuration(new BigDecimal(siv.getBillSessionDuration().doubleValue() - freeMins));
-					}else {
-						usedFreeMins = usedFreeMins + freeMins;
-						siv.setBillSessionDuration(new BigDecimal(0.00));
+
+					logger.info("Retrieved original values - kWh: " + originalFreeKwh + ", mins: " + originalFreeMins);
+					logger.info("Retrieved used additional - kWh: " + usedAdditionalKwh + ", mins: " + usedAdditionalMins);
+
+//					// Calculate new additional based on difference from original
+//					additionalFreeKwh = Math.max(0, freeKwh - originalFreeKwh);
+//					additionalFreeMins = Math.max(0, freeMins - originalFreeMins);
+//
+//					// Update additional values
+//					String updateAdditionalValues = "UPDATE ocpp_sessionBillableData SET " +
+//							"additional_free_kwh = '" + additionalFreeKwh + "', " +
+//							"additional_free_mins = '" + additionalFreeMins + "', " +
+//							"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+//							"WHERE charge_session_id = '" + chargeSessionId + "'";
+//					executeRepository.update(updateAdditionalValues);
+
+					// Calculate new additional based on difference from original, accounting for what's already been used
+					double totalAdditionalFreeKwh = Math.max(0, freeKwh - originalFreeKwh);
+					double totalAdditionalFreeMins = Math.max(0, freeMins - originalFreeMins);
+
+					// Get total used additional across all sessions for this user today
+					String totalUsedAdditionalQuery =
+							"SELECT SUM(used_additional_kwh) as total_used_additional_kwh, " +
+									"SUM(used_additional_mins) as total_used_additional_mins " +
+									"FROM session s " +
+									"LEFT JOIN ocpp_sessionBillableData osb ON s.sessionId = osb.charge_session_id " +
+									"WHERE s.userId = '" + siv.getUserObj().get("UserId").asLong() + "' " +
+									"AND CAST(s.startTimeStamp AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "'";
+
+					List<Map<String, Object>> totalUsedAdditionalData = generalDao.getMapData(totalUsedAdditionalQuery);
+					double totalUsedAdditionalKwh = 0;
+					double totalUsedAdditionalMins = 0;
+
+					if (!totalUsedAdditionalData.isEmpty()) {
+						if (totalUsedAdditionalData.get(0).get("total_used_additional_kwh") != null) {
+							totalUsedAdditionalKwh = Double.valueOf(String.valueOf(totalUsedAdditionalData.get(0).get("total_used_additional_kwh")));
+						}
+						if (totalUsedAdditionalData.get(0).get("total_used_additional_mins") != null) {
+							totalUsedAdditionalMins = Double.valueOf(String.valueOf(totalUsedAdditionalData.get(0).get("total_used_additional_mins")));
+						}
 					}
-					executeRepository.update("update freeChargingForDriverGrp set usedFreeMins='"+usedFreeMins+"', usedFreekWhs='"+usedFreeKwh+"' where id="+String.valueOf(fcdg.get(0).get("id")));
-				}else {
-					if(freeKwh > siv.getBillTotalKwUsed().doubleValue()) {
-						usedFreeKwh = usedFreeKwh + siv.getBillTotalKwUsed().doubleValue();
-						siv.setBillTotalKwUsed(new BigDecimal(0.00));
-					}else if(freeKwh < siv.getBillTotalKwUsed().doubleValue()){
-						usedFreeKwh = usedFreeKwh + freeKwh;
-						siv.setBillTotalKwUsed(new BigDecimal(siv.getBillTotalKwUsed().doubleValue() - freeKwh).setScale(4,RoundingMode.HALF_UP));
-					}else {
-						usedFreeKwh = usedFreeKwh + freeKwh;
-						siv.setBillTotalKwUsed(new BigDecimal(0.00));
+
+					// Calculate available additional resources for this session
+					double availableAdditionalFreeKwh = Math.max(0, totalAdditionalFreeKwh - totalUsedAdditionalKwh);
+					double availableAdditionalFreeMins = Math.max(0, totalAdditionalFreeMins - totalUsedAdditionalMins);
+
+					// Set these values for use in the rest of the function
+					additionalFreeKwh = availableAdditionalFreeKwh;
+					additionalFreeMins = availableAdditionalFreeMins;
+
+					// Update additional values with what's actually available
+					String updateAdditionalValues = "UPDATE ocpp_sessionBillableData SET " +
+							"additional_free_kwh = '" + availableAdditionalFreeKwh + "', " +
+							"additional_free_mins = '" + availableAdditionalFreeMins + "', " +
+							"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+							"WHERE charge_session_id = '" + chargeSessionId + "'";
+					executeRepository.update(updateAdditionalValues);
+
+					// Calculate how much of original was used
+					double usedFromOriginalKwh = Math.min(usedFreeKwh, originalFreeKwh);
+					double usedFromOriginalMins = Math.min(usedFreeMins, originalFreeMins);
+
+					// If total usage exceeds original capacity, the excess is from additional
+					double newUsedAdditionalKwh = 0;
+					double newUsedAdditionalMins = 0;
+
+					if (usedFreeKwh > originalFreeKwh) {
+						newUsedAdditionalKwh = usedFreeKwh - originalFreeKwh;
 					}
-					if(freeMins > siv.getBillSessionDuration().doubleValue()) {
-						usedFreeMins = usedFreeMins + siv.getBillSessionDuration().doubleValue();
-						siv.setBillSessionDuration(new BigDecimal(0.00));
-					}else if(freeMins < siv.getBillSessionDuration().doubleValue()){
-						usedFreeMins = usedFreeMins + freeMins;
-						siv.setBillSessionDuration(new BigDecimal(siv.getBillSessionDuration().doubleValue() - freeMins));
-					}else {
-						usedFreeMins = usedFreeMins + freeMins;
-						siv.setBillSessionDuration(new BigDecimal(0.00));
+					if (usedFreeMins > originalFreeMins) {
+						newUsedAdditionalMins = usedFreeMins - originalFreeMins;
 					}
-					
+
+//					String updateUsedAdditional = "UPDATE ocpp_sessionBillableData SET " +
+//							"used_additional_kwh = '" + newUsedAdditionalKwh + "', " +
+//							"used_additional_mins = '" + newUsedAdditionalMins + "', " +
+//							"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+//							"WHERE charge_session_id = (SELECT TOP 1 charge_session_id FROM ocpp_sessionBillableData osb " +
+//							"WHERE CAST(created_date AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "' " +
+//							"ORDER BY created_date ASC)";
+
+					String updateUsedAdditional = "UPDATE ocpp_sessionBillableData SET " +
+							"used_additional_kwh = '" + newUsedAdditionalKwh + "', " +
+							"used_additional_mins = '" + newUsedAdditionalMins + "', " +
+							"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+							"WHERE charge_session_id = '" + chargeSessionId + "'";
+					executeRepository.update(updateUsedAdditional);
+
+					// Calculate remaining additional
+					double remainingAdditionalKwh;
+					double remainingAdditionalMins;
+
+					// Calculate remaining
+					remainingKwh = Math.max(0, (originalFreeKwh - usedFromOriginalKwh) +
+							(additionalFreeKwh - newUsedAdditionalKwh));
+					remainingMins = Math.max(0, (originalFreeMins - usedFromOriginalMins) +
+							(additionalFreeMins - newUsedAdditionalMins));
+
+					logger.info("Usage breakdown - Original kWh: used " + usedFromOriginalKwh + " of " + originalFreeKwh);
+					logger.info("Usage breakdown - Original mins: used " + usedFromOriginalMins + " of " + originalFreeMins);
+					logger.info("Usage breakdown - Additional kWh: used " + newUsedAdditionalKwh + " of " + additionalFreeKwh);
+					logger.info("Usage breakdown - Additional mins: used " + newUsedAdditionalMins + " of " + additionalFreeMins);
+					logger.info("Remaining - Total kWh: " + remainingKwh + ", Total mins: " + remainingMins);
+
+					BigDecimal previousKwhUsed = new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("kilowattHoursUsed")));
+					BigDecimal incrementalKwhUsed = siv.getBillTotalKwUsed().subtract(previousKwhUsed);
+					logger.info("kWh calculation - previousKwhUsed: " + previousKwhUsed +
+							", currentTotal: " + siv.getBillTotalKwUsed() +
+							", incrementalKwhUsed: " + incrementalKwhUsed);
+
+					if(siv.getBillTotalKwUsed().compareTo(previousKwhUsed) > 0) {
+						if (incrementalKwhUsed.doubleValue() >= 0) {
+							if (remainingKwh >= incrementalKwhUsed.doubleValue()) {
+								logger.info("Case 1: Full coverage by remaining free kWh");
+
+								// Get current session's already used free kWh
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_kwh, 0) as session_free_kwh " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeKwh = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_kwh")));
+
+								// Calculate new total used
+								double newSessionFreeKwhUsed = sessionAlreadyUsedFreeKwh + incrementalKwhUsed.doubleValue();
+
+								remainingKwh = remainingKwh - incrementalKwhUsed.doubleValue();
+								usedFreeKwh = usedFreeKwh + incrementalKwhUsed.doubleValue();
+								logger.info("After full coverage - remainingKwh: " + remainingKwh +
+										", usedFreeKwh: " + usedFreeKwh +
+										", sessionFreeKwhUsed: " + newSessionFreeKwhUsed);
+								siv.setBillTotalKwUsed(new BigDecimal(0.00));
+
+								// Update session tracking
+								String updateKwhSql = "UPDATE ocpp_sessionBillableData " +
+										"SET last_billable_kwh = '0.00', " +
+										"used_free_kwh = '" + newSessionFreeKwhUsed + "', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateKwhSql);
+
+							} else if (remainingKwh > 0) {
+								logger.info("Case 2: Partial coverage by remaining free kWh");
+
+								// Get current session's already used free kWh
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_kwh, 0) as session_free_kwh " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeKwh = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_kwh")));
+
+								// Calculate new total used
+								double newSessionFreeKwhUsed = sessionAlreadyUsedFreeKwh + remainingKwh;
+
+								usedFreeKwh = usedFreeKwh + remainingKwh;
+								BigDecimal billableKwh = incrementalKwhUsed.subtract(new BigDecimal(remainingKwh));
+								siv.setBillTotalKwUsed(billableKwh.setScale(4, RoundingMode.HALF_UP));
+								remainingKwh = 0.00;
+
+								// Update session tracking
+								String updateKwhSql = "UPDATE ocpp_sessionBillableData " +
+										"SET last_billable_kwh = '" + siv.getBillTotalKwUsed() + "', " +
+										"used_free_kwh = '" + newSessionFreeKwhUsed + "', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateKwhSql);
+
+							} else {
+								logger.info("Case 3: No free kWh remaining");
+								BigDecimal totalUsage = siv.getBillTotalKwUsed();
+
+								// Get current session's already used free kWh
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_kwh, 0) as session_free_kwh " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeKwh = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_kwh")));
+
+								// Get total free kWh used across all sessions
+								String totalUsageQuery =
+										"SELECT SUM(used_free_kwh) as total_free_kwh " +
+												"FROM session s " +
+												"LEFT JOIN ocpp_sessionBillableData osb ON s.sessionId = osb.charge_session_id " +
+												"WHERE s.userId = '" + siv.getUserObj().get("UserId").asLong() + "' " +
+												"AND CAST(s.startTimeStamp AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "'";
+								List<Map<String, Object>> totalUsageData = generalDao.getMapData(totalUsageQuery);
+								double totalFreeKwhUsed = 0;
+								if (!totalUsageData.isEmpty() && totalUsageData.get(0).get("total_free_kwh") != null) {
+									totalFreeKwhUsed = Double.valueOf(String.valueOf(totalUsageData.get(0).get("total_free_kwh")));
+								}
+
+								// Calculate total free allocation and this session's available allocation
+								double totalFreeKwhAllocation = originalFreeKwh + additionalFreeKwh;
+
+								// CRITICAL FIX: Calculate how much of the free resources this session can claim
+								// This is the min of: the session's current usage or what's left in the free pool for this session
+								double availableForThisSession = Math.min(
+										totalUsage.doubleValue(),
+										Math.max(0, totalFreeKwhAllocation - (totalFreeKwhUsed - sessionAlreadyUsedFreeKwh))
+								);
+
+								// Calculate billable amount (total minus this session's free allocation)
+								BigDecimal billableKwh = totalUsage.subtract(BigDecimal.valueOf(availableForThisSession));
+								if (billableKwh.compareTo(BigDecimal.ZERO) < 0) {
+									billableKwh = BigDecimal.ZERO;
+								}
+
+								logger.info("Corrected billing - totalUsage: " + totalUsage +
+										", totalFreeAllocation: " + totalFreeKwhAllocation +
+										", totalUsed: " + totalFreeKwhUsed +
+										", sessionAlreadyUsed: " + sessionAlreadyUsedFreeKwh +
+										", availableForSession: " + availableForThisSession +
+										", billableKwh: " + billableKwh);
+
+								siv.setBillTotalKwUsed(billableKwh.setScale(4, RoundingMode.HALF_UP));
+
+								// Update session tracking - store how much free kWh this session has used
+								String updateKwhSql = "UPDATE ocpp_sessionBillableData SET " +
+										"used_free_kwh = '" + availableForThisSession + "', " +
+										"last_billable_kwh = '" + siv.getBillTotalKwUsed() + "', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateKwhSql);
+							}
+						}
+					} else {
+						logger.info("Invalid meter value - less than or equal to previous reading");
+						if (lastBillableKwh != null) {
+							siv.setBillTotalKwUsed(lastBillableKwh);
+						}
+					}
+
+					BigDecimal previousDuration = new BigDecimal(String.valueOf(siv.getPreviousSessionData().get("sessionElapsedInMin")));
+					BigDecimal incrementalDuration = siv.getBillSessionDuration().subtract(previousDuration);
+					logger.info("mins calculation - previousDuration: " + previousDuration +
+							", currentTotal: " + siv.getBillSessionDuration() +
+							", incrementalDuration: " + incrementalDuration);
+
+					if(siv.getBillSessionDuration().compareTo(previousDuration) > 0) {
+						if(incrementalDuration.doubleValue() > 0) {
+							if (remainingMins >= incrementalDuration.doubleValue()) {
+								logger.info("Case 1: Full coverage by remaining free mins");
+
+								// Get current session's already used free minutes
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_mins, 0) as session_free_mins " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeMins = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_mins")));
+
+								// Calculate new total used
+								double newSessionFreeMinsUsed = sessionAlreadyUsedFreeMins + incrementalDuration.doubleValue();
+
+								remainingMins = remainingMins - incrementalDuration.doubleValue();
+								usedFreeMins = usedFreeMins + incrementalDuration.doubleValue();
+								logger.info("After full coverage - remainingMins: " + remainingMins +
+										", usedFreeMins: " + usedFreeMins +
+										", sessionFreeMinsUsed: " + newSessionFreeMinsUsed);
+								siv.setBillSessionDuration(new BigDecimal(0.00));
+
+								// Update session tracking
+								String updateFreeMinsql = "UPDATE ocpp_sessionBillableData SET " +
+										"used_free_mins = '" + newSessionFreeMinsUsed + "', " +
+										"last_billable_duration = '0.00', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateFreeMinsql);
+
+							} else if (remainingMins > 0) {
+								logger.info("Case 2: Partial coverage by remaining free mins");
+
+								// Get current session's already used free minutes
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_mins, 0) as session_free_mins " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeMins = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_mins")));
+
+								// Calculate new total used
+								double newSessionFreeMinsUsed = sessionAlreadyUsedFreeMins + remainingMins;
+
+								usedFreeMins = usedFreeMins + remainingMins;
+								BigDecimal billableDuration = incrementalDuration.subtract(new BigDecimal(remainingMins));
+								siv.setBillSessionDuration(billableDuration.setScale(4, RoundingMode.HALF_UP));
+								remainingMins = 0.00;
+
+								// Update session tracking
+								String updateFreeMinsql = "UPDATE ocpp_sessionBillableData SET " +
+										"used_free_mins = '" + newSessionFreeMinsUsed + "', " +
+										"last_billable_duration = '" + siv.getBillSessionDuration() + "', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateFreeMinsql);
+
+							} else {
+								logger.info("Case 3: No free minutes remaining");
+								BigDecimal totalDuration = siv.getBillSessionDuration();
+
+								// Get current session's already used free minutes
+								String currentSessionUsageQuery =
+										"SELECT ISNULL(used_free_mins, 0) as session_free_mins " +
+												"FROM ocpp_sessionBillableData " +
+												"WHERE charge_session_id = '" + chargeSessionId + "'";
+								List<Map<String, Object>> currentSessionUsage = generalDao.getMapData(currentSessionUsageQuery);
+								double sessionAlreadyUsedFreeMins = Double.valueOf(String.valueOf(currentSessionUsage.get(0).get("session_free_mins")));
+
+								// Get total free minutes used across all sessions
+								String totalUsageQuery =
+										"SELECT SUM(used_free_mins) as total_free_mins " +
+												"FROM session s " +
+												"LEFT JOIN ocpp_sessionBillableData osb ON s.sessionId = osb.charge_session_id " +
+												"WHERE s.userId = '" + siv.getUserObj().get("UserId").asLong() + "' " +
+												"AND CAST(s.startTimeStamp AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "'";
+								List<Map<String, Object>> totalUsageData = generalDao.getMapData(totalUsageQuery);
+								double totalFreeMinutesUsed = 0;
+								if (!totalUsageData.isEmpty() && totalUsageData.get(0).get("total_free_mins") != null) {
+									totalFreeMinutesUsed = Double.valueOf(String.valueOf(totalUsageData.get(0).get("total_free_mins")));
+								}
+
+								// Calculate total free allocation and this session's available allocation
+								double totalFreeMinutesAllocation = originalFreeMins + additionalFreeMins;
+
+								// CRITICAL FIX: Calculate how much of the free resources this session can claim
+								// This is the min of: the session's current usage or what's left in the free pool for this session
+								double availableForThisSession = Math.min(
+										totalDuration.doubleValue(),
+										Math.max(0, totalFreeMinutesAllocation - (totalFreeMinutesUsed - sessionAlreadyUsedFreeMins))
+								);
+
+								// Calculate billable amount (total minus this session's free allocation)
+								BigDecimal billableDuration = totalDuration.subtract(BigDecimal.valueOf(availableForThisSession));
+								if (billableDuration.compareTo(BigDecimal.ZERO) < 0) {
+									billableDuration = BigDecimal.ZERO;
+								}
+
+								logger.info("Corrected billing - totalDuration: " + totalDuration +
+										", totalFreeAllocation: " + totalFreeMinutesAllocation +
+										", totalUsed: " + totalFreeMinutesUsed +
+										", sessionAlreadyUsed: " + sessionAlreadyUsedFreeMins +
+										", availableForSession: " + availableForThisSession +
+										", billableDuration: " + billableDuration);
+
+								siv.setBillSessionDuration(billableDuration.setScale(4, RoundingMode.HALF_UP));
+
+								// Update session tracking - store how much free minutes this session has used
+								String updateMinsql = "UPDATE ocpp_sessionBillableData SET " +
+										"used_free_mins = '" + availableForThisSession + "', " +
+										"last_billable_duration = '" + siv.getBillSessionDuration() + "', " +
+										"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+										"WHERE charge_session_id = '" + chargeSessionId + "'";
+								executeRepository.update(updateMinsql);
+							}
+						}
+					} else {
+						logger.info("Invalid duration - less than or equal to previous reading");
+						if (lastBillableDuration != null) {
+							siv.setBillSessionDuration(lastBillableDuration);
+						}
+					}
+
+					executeRepository.update("update freeChargingForDriverGrp set usedFreeMins='" + usedFreeMins +
+							"', usedFreekWhs='" + usedFreeKwh + "', remainingFreeKwh='" + remainingKwh +
+							"', remainingFreeMins='" + remainingMins + "' where id=" + fcdg.get(0).get("id"));
+
+				} else {
+					// First transaction of the day
+
+					String updateSql = "UPDATE ocpp_sessionBillableData SET " +
+							"original_free_kwh = '" + freeKwh + "', " +
+							"original_free_mins = '" + freeMins + "', " +
+							"used_additional_kwh = '0', " +
+							"used_additional_mins = '0', " +
+							"additional_free_kwh = '0', " +
+							"additional_free_mins = '0', " +
+							"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+							"WHERE charge_session_id = '" + chargeSessionId + "'";
+					executeRepository.update(updateSql);
+					logger.info("Set original values - kWh: " + freeKwh + ", mins: " + freeMins);
+
+					// Initialize usage values for first transaction
+					originalFreeKwh = freeKwh;
+					originalFreeMins = freeMins;
+					double usedFromOriginalKwh = 0.00;
+					double usedFromOriginalMins = 0.00;
+					double newUsedAdditionalKwh = 0.00;
+					double newUsedAdditionalMins = 0.00;
+					additionalFreeKwh = 0.00;
+					additionalFreeMins = 0.00;
+
+					remainingKwh = freeKwh;
+					remainingMins = freeMins;
+
+					// Add logger statements
+					logger.info("Usage breakdown - Original kWh: used " + usedFromOriginalKwh + " of " + originalFreeKwh);
+					logger.info("Usage breakdown - Original mins: used " + usedFromOriginalMins + " of " + originalFreeMins);
+					logger.info("Usage breakdown - Additional kWh: used " + newUsedAdditionalKwh + " of " + additionalFreeKwh);
+					logger.info("Usage breakdown - Additional mins: used " + newUsedAdditionalMins + " of " + additionalFreeMins);
+					logger.info("Remaining - Total kWh: " + remainingKwh + ", Total mins: " + remainingMins);
+
+					BigDecimal incrementalKwhUsed = siv.getBillTotalKwUsed();
+
+					if(incrementalKwhUsed.doubleValue() > 0) {
+						if(freeKwh >= incrementalKwhUsed.doubleValue()) {
+							remainingKwh = freeKwh - incrementalKwhUsed.doubleValue();
+							usedFreeKwh = incrementalKwhUsed.doubleValue();
+							usedFromOriginalKwh = usedFreeKwh; // Update for logging
+							siv.setBillTotalKwUsed(new BigDecimal(0.00));
+						} else {
+							usedFreeKwh = freeKwh;
+							usedFromOriginalKwh = freeKwh; // Update for logging
+							remainingKwh = 0.00;
+							BigDecimal totalUsage = siv.getBillTotalKwUsed();
+							BigDecimal freeAllocation = new BigDecimal(freeKwh);
+							BigDecimal billableKwh = totalUsage.subtract(freeAllocation);
+							siv.setBillTotalKwUsed(billableKwh.setScale(4, RoundingMode.HALF_UP));
+						}
+						String updateKwhSql = "UPDATE ocpp_sessionBillableData " +
+								"SET last_billable_kwh = '" + siv.getBillTotalKwUsed() + "', " +
+								"used_free_kwh = '" + usedFreeKwh + "', " +
+								"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+								"WHERE charge_session_id = '" + chargeSessionId + "'";
+						executeRepository.update(updateKwhSql);
+
+						// Add updated logger statements after processing
+						logger.info("Usage breakdown after kWh processing - Original kWh: used " + usedFromOriginalKwh + " of " + originalFreeKwh);
+						logger.info("Remaining kWh after processing: " + remainingKwh);
+					}
+
+					BigDecimal incrementalDuration = siv.getBillSessionDuration();
+					if(incrementalDuration.doubleValue() > 0) {
+						if(freeMins >= incrementalDuration.doubleValue()) {
+							remainingMins = freeMins - incrementalDuration.doubleValue();
+							usedFreeMins = incrementalDuration.doubleValue();
+							usedFromOriginalMins = usedFreeMins; // Update for logging
+							siv.setBillSessionDuration(new BigDecimal(0.00));
+						} else {
+							usedFreeMins = freeMins;
+							usedFromOriginalMins = freeMins; // Update for logging
+							remainingMins = 0.00;
+							siv.setBillSessionDuration(incrementalDuration.subtract(new BigDecimal(freeMins))
+									.setScale(4, RoundingMode.HALF_UP));
+						}
+						String updateDurationSql = "UPDATE ocpp_sessionBillableData " +
+								"SET last_billable_duration = '" + siv.getBillSessionDuration() + "', " +
+								"used_free_mins = '" + usedFreeMins + "', " +
+								"updated_date = '"+utils.getDate(siv.getMeterValueTimeStatmp())+"' " +
+								"WHERE charge_session_id = '" + chargeSessionId + "'";
+						executeRepository.update(updateDurationSql);
+
+						// Add updated logger statements after processing
+						logger.info("Usage breakdown after minutes processing - Original mins: used " + usedFromOriginalMins + " of " + originalFreeMins);
+						logger.info("Remaining mins after processing: " + remainingMins);
+					}
+
+					// Final logger statements
+					logger.info("Usage breakdown - Final - Original kWh: used " + usedFromOriginalKwh + " of " + originalFreeKwh);
+					logger.info("Usage breakdown - Final - Original mins: used " + usedFromOriginalMins + " of " + originalFreeMins);
+					logger.info("Usage breakdown - Final - Additional kWh: used " + newUsedAdditionalKwh + " of " + additionalFreeKwh);
+					logger.info("Usage breakdown - Final - Additional mins: used " + newUsedAdditionalMins + " of " + additionalFreeMins);
+					logger.info("Remaining - Final - Total kWh: " + remainingKwh + ", Total mins: " + remainingMins);
+
 					freeChargingForDriverGrp fcdgObj = new freeChargingForDriverGrp();
 					fcdgObj.setCreatedDate(utils.getDateFrmt(siv.getMeterValueTimeStatmp()));
 					fcdgObj.setUsedFreekWhs(usedFreeKwh);
 					fcdgObj.setUsedFreeMins(usedFreeMins);
+					fcdgObj.setRemainingFreeKwh(remainingKwh);
+					fcdgObj.setRemainingFreeMins(remainingMins);
 					fcdgObj.setUserId(siv.getUserObj().get("UserId").asLong());
 					generalDao.save(fcdgObj);
 				}
+
+				logger.info(Thread.currentThread().getId() + "Final billing values - Duration: " + siv.getBillSessionDuration() +
+						", kWh: " + siv.getBillTotalKwUsed() +
+						", Remaining free kWh: " + remainingKwh +
+						", Used free kWh: " + usedFreeKwh);
+
+				// Get all session usage for this user today
+				String allSessionsQuery =
+						"SELECT SUM(used_free_kwh) as total_kwh_used, SUM(used_free_mins) as total_mins_used " +
+								"FROM session s " +
+								"LEFT JOIN ocpp_sessionBillableData osb ON s.sessionId = osb.charge_session_id " +
+								"WHERE s.userId = '" + siv.getUserObj().get("UserId").asLong() + "' " +
+								"AND CAST(s.startTimeStamp AS DATE) = '" + utils.getDate(siv.getMeterValueTimeStatmp()) + "'";
+
+				List<Map<String, Object>> totalSessionUsage = generalDao.getMapData(allSessionsQuery);
+				if (!totalSessionUsage.isEmpty() && totalSessionUsage.get(0).get("total_kwh_used") != null) {
+					double totalKwhUsed = Double.valueOf(String.valueOf(totalSessionUsage.get(0).get("total_kwh_used")));
+					double totalMinsUsed = Double.valueOf(String.valueOf(totalSessionUsage.get(0).get("total_mins_used")));
+
+					logger.info("TOTAL USAGE ACROSS ALL SESSIONS - kWh: " + totalKwhUsed +
+							", mins: " + totalMinsUsed);
+					logger.info("PERCENTAGE USED - kWh: " + (totalKwhUsed/(originalFreeKwh + additionalFreeKwh))*100 + "%" +
+							", mins: " + (totalMinsUsed/(originalFreeMins + additionalFreeMins))*100 + "%");
+				}
 			}
-			logger.info(Thread.currentThread().getId()+"Billing duration : "+siv.getBillSessionDuration()+" , kWh : "+siv.getBillTotalKwUsed());
-		}catch (Exception e) {
+		} catch (Exception e) {
 			e.printStackTrace();
-			logger.info(Thread.currentThread().getId()+""+e.getMessage());
+			logger.error(Thread.currentThread().getId() + "Error in freeChargingForDriverGrp: " + e.getMessage());
 		}
 		return siv;
 	}
 
+//	public void clearSessionValues(String chargeSessionId) {
+//		String deleteSql = "DELETE FROM ocpp_sessionBillableData WHERE charge_session_id = '" + chargeSessionId + "'";
+//		executeRepository.update(deleteSql);
+//		logger.info("Cleared session values for sessionId: " + chargeSessionId);
+//	}
+
 	public SessionImportedValues calcOfTariff(Map<String, Object> siteObj,BigDecimal transactionFee,boolean combination, String vendingUnit,BigDecimal vendingPrice,String vendingUnit2,BigDecimal vendingPrice2,
-			SessionImportedValues sessionImportedValues, BigDecimal durationInMinutes,
-			OCPPStartTransaction startTransactionObj, BigDecimal totalKwUsed) {
+											  SessionImportedValues sessionImportedValues, BigDecimal durationInMinutes,
+											  OCPPStartTransaction startTransactionObj, BigDecimal totalKwUsed) {
 		try {
 			BigDecimal finalCost = new BigDecimal("0.0");
 			BigDecimal totalCost = new BigDecimal("0.0");
 			BigDecimal flatPrice =new BigDecimal("0.0");
-			
+
 			BigDecimal enegryCost1 = new BigDecimal("0.0");
 			BigDecimal parkingCost1 = new BigDecimal("0.0");
 			BigDecimal timeCost1 = new BigDecimal("0.0");
 			BigDecimal cost1 = new BigDecimal("0.0");
-			
+
 			BigDecimal enegryCost2 = new BigDecimal("0.0");
 			BigDecimal parkingCost2 = new BigDecimal("0.0");
 			BigDecimal timeCost2 = new BigDecimal("0.0");
@@ -1154,7 +1678,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			BigDecimal portPrice =vendingPrice;
 			String portPriceUnit =vendingUnit;
 			flatPrice =transactionFee;
-			
+
 			if (portPriceUnit.equalsIgnoreCase("Hr")) {
 				portPrice = portPrice.divide(new BigDecimal("60"), 5, RoundingMode.HALF_UP);
 				timeCost1 = portPrice.multiply(portPrice);
@@ -1176,7 +1700,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					enegryCost1 = portPrice1.multiply(totalKwUsed);
 					salesTaxVal1 = (salesTaxPer.divide(new BigDecimal("100"), 5, RoundingMode.HALF_UP)).multiply(enegryCost1);
 				}
-				
+
 				BigDecimal portPrice2 =vendingPrice2;
 				String portPriceUnit2 = vendingUnit2;
 				if(portPriceUnit2.equalsIgnoreCase("Hr")) {
@@ -1199,7 +1723,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			cost2 = enegryCost2.add(parkingCost2).add(timeCost2);
 			totalCost = cost1.add(cost2);
 			finalCost = totalCost.add(flatPrice);
-			
+
 			BigDecimal excTotlCost = cost1;
 			TariffPrice minPriceBillDtls = getMinPriceBillDetails(Long.valueOf(0));
 			if (minPriceBillDtls != null && (Double.parseDouble(String.valueOf(excTotlCost)) < minPriceBillDtls.getExcl_vat())) {
@@ -1287,7 +1811,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		try {
 			String queryForaccRxId = "select ISNULL(accountTransaction_id,0) as accountTransaction_id from session where sessionId = '"+sessionId+"'";
 			List<Map<String,Object>> durationInString = executeRepository.findAll(queryForaccRxId);
-			
+
 			if(durationInString.size()>0) {
 				Long accTxnId = Long.valueOf(String.valueOf(durationInString.get(0).get("accountTransaction_id")));
 				String queryForacc = "select top 1 * from account_transaction where id = '" +accTxnId+ "'";
@@ -1302,7 +1826,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		return accountTransactionObj;
 	}
 	public AccountTransactionForGuestUser insertIntoAccountTransactionForGuestUser(double revenue, Date utcTime,
-			String sessionId, String phone, Boolean flag, Long stationId) {
+																				   String sessionId, String phone, Boolean flag, Long stationId) {
 		AccountTransactionForGuestUser guestUserTransaction = null;
 		try {
 			guestUserTransaction = generalDao.findOne(
@@ -1340,11 +1864,11 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return flag;
 	}
-	
+
 	public void notificationFlagUpdates(String id, boolean flag, String typeOfFlag, String stationRefNum) {
 		try {
 			if (typeOfFlag.equalsIgnoreCase("1") || typeOfFlag.equalsIgnoreCase("1.0")) {
-				executeRepository.update("update ocpp_sessionData set lowBalanceFlag = '" + flag + "' where sessionId='" + id + "'");				
+				executeRepository.update("update ocpp_sessionData set lowBalanceFlag = '" + flag + "' where sessionId='" + id + "'");
 			} else if (typeOfFlag.equalsIgnoreCase("5")) {
 				executeRepository.update("update ocpp_sessionData set notificationFlag = '" + flag + "' where sessionId='" + id + "'");
 			} else if (typeOfFlag.equalsIgnoreCase("3PlusHrs")) {
@@ -1398,7 +1922,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			meterValuesPojo.setTemperatureUnit(siv.getTemperatureUnit()== null ? "-" : siv.getTemperatureUnit().equalsIgnoreCase("null") ? "-": siv.getTemperatureUnit());
 			meterValuesPojo.setSoCUnit(siv.getSoCUnit()== null ? "Percent" : siv.getSoCUnit().equalsIgnoreCase("null") ? "Percent": siv.getSoCUnit());
 			meterValuesPojo.setRPMUnit(siv.getRPMUnit()== null ? "-" : siv.getRPMUnit().equalsIgnoreCase("null") ? "-": siv.getRPMUnit());
-			
+
 			meterValuesPojo.setEnergyActiveExportRegisterValue(siv.getEnergyActiveExportRegisterValue()== null ? 0.0 :siv.getEnergyActiveExportRegisterValue().equalsIgnoreCase("null") ? 0.0 : Double.parseDouble(String.valueOf(siv.getEnergyActiveExportRegisterValue())));
 			meterValuesPojo.setEnergyActiveImportRegisterValue(siv.getEnergyActiveImportRegisterValueES()== null ? 0.0 :siv.getEnergyActiveImportRegisterValueES().equalsIgnoreCase("null") ? 0.0 : Double.parseDouble(String.valueOf(siv.getEnergyActiveImportRegisterValueES())));
 			meterValuesPojo.setEnergyReactiveExportRegisterValue(siv.getEnergyReactiveExportRegisterValue()== null ? 0.0 : siv.getEnergyReactiveExportRegisterValue().equalsIgnoreCase("null") ? 0.0 :Double.parseDouble(String.valueOf(siv.getEnergyReactiveExportRegisterValue())));
@@ -1434,75 +1958,77 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			e.printStackTrace();
 		}
 		return false;
-	
+
 	}
 	@Override
 	public void sendPushNotification(SessionImportedValues siv, String NoftyType) {
-		try {
-			Thread thread = new Thread() {
-				@SuppressWarnings("unchecked")
-				public void run() {
-					try {
-						JSONObject extra = new JSONObject();
-						List<String> deviceTokens=new ArrayList();
-						if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-							List<DeviceDetails> deviceDetails = OCPPDeviceDetailsService.getDeviceByUser(Long.valueOf(String.valueOf(siv.getStTxnObj().getUserId())));
-							if (deviceDetails != null) {
-								deviceDetails.forEach(device -> {
-									try {
-										if (device.getDeviceType().equalsIgnoreCase("Android")) {
-											if(!String.valueOf(device.getDeviceToken()).equalsIgnoreCase("")) {
-												deviceTokens.add(device.getDeviceToken());
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				Thread thread = new Thread() {
+					@SuppressWarnings("unchecked")
+					public void run() {
+						try {
+							JSONObject extra = new JSONObject();
+							List<String> deviceTokens = new ArrayList();
+							if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+								List<DeviceDetails> deviceDetails = OCPPDeviceDetailsService.getDeviceByUser(Long.valueOf(String.valueOf(siv.getStTxnObj().getUserId())));
+								if (deviceDetails != null) {
+									deviceDetails.forEach(device -> {
+										try {
+											if (device.getDeviceType().equalsIgnoreCase("Android")) {
+												if (!String.valueOf(device.getDeviceToken()).equalsIgnoreCase("")) {
+													deviceTokens.add(device.getDeviceToken());
+												}
 											}
-										}
-										if (device.getDeviceType().equalsIgnoreCase("ios")) {
+											if (device.getDeviceType().equalsIgnoreCase("ios")) {
 //											iOSRecipients.add(device.getDeviceToken());	
-										}
+											}
 
-									} catch (Exception e) {
-										e.printStackTrace();
-									}
-								});
-							}
-						}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
-							String user_obj = siv.getTxnData().getUser_obj();
-							if(user_obj != null && !user_obj.equalsIgnoreCase("null")) {
-								JsonNode tariff = objectMapper.readTree(user_obj);
-								if(tariff.size() > 0) {
-									if(String.valueOf(tariff.get("deviceType").asText()).equalsIgnoreCase("Android")) {
-										if(!String.valueOf(tariff.get("deviceToken").asText()).equalsIgnoreCase("")) {
-											deviceTokens.add(String.valueOf(tariff.get("deviceToken").asText()));
+										} catch (Exception e) {
+											e.printStackTrace();
 										}
-									}else if(String.valueOf(tariff.get("deviceType").asText()).equalsIgnoreCase("iOS")){
+									});
+								}
+							} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")) {
+								String user_obj = siv.getTxnData().getUser_obj();
+								if (user_obj != null && !user_obj.equalsIgnoreCase("null")) {
+									JsonNode tariff = objectMapper.readTree(user_obj);
+									if (tariff.size() > 0) {
+										if (String.valueOf(tariff.get("deviceType").asText()).equalsIgnoreCase("Android")) {
+											if (!String.valueOf(tariff.get("deviceToken").asText()).equalsIgnoreCase("")) {
+												deviceTokens.add(String.valueOf(tariff.get("deviceToken").asText()));
+											}
+										} else if (String.valueOf(tariff.get("deviceType").asText()).equalsIgnoreCase("iOS")) {
 //										iOSRecipients.add(String.valueOf(tariff.get("deviceToken").asText()));	
+										}
 									}
 								}
 							}
+							Map<String, Object> orgData = ocppUserService.getOrgData(siv.getSite_orgId(), String.valueOf(siv.getStnObj().get("referNo").asText()));
+							JSONObject info = new JSONObject();
+							extra.put("stationId", String.valueOf(siv.getStnObj().get("stnId").asLong()));
+							extra.put("stationName", String.valueOf(siv.getStnObj().get("referNo").asText()));
+							extra.put("portId", String.valueOf(siv.getStnObj().get("portId").asLong()));
+							extra.put("sessionId", siv.getChargeSessUniqId());
+							info.put("action", NoftyType);
+							info.put("notificationId", utils.getIntRandomNumber(9));
+							info.put("extra", String.valueOf(extra));
+							info.put("title", String.valueOf(orgData.get("orgName")));
+							info.put("body", "");
+							info.put("userId", String.valueOf(siv.getStTxnObj().getUserId()));
+
+							if (deviceTokens.size() > 0) {
+								pushNotification.sendMulticastMessage(info, deviceTokens, null, 0);
+							}
+						} catch (Exception e) {
+							e.printStackTrace();
 						}
-						Map<String, Object> orgData = ocppUserService.getOrgData(siv.getSite_orgId(), String.valueOf(siv.getStnObj().get("referNo").asText()));
-						JSONObject info = new JSONObject();
-						extra.put("stationId", String.valueOf(siv.getStnObj().get("stnId").asLong()));
-						extra.put("stationName", String.valueOf(siv.getStnObj().get("referNo").asText()));
-						extra.put("portId", String.valueOf(siv.getStnObj().get("portId").asLong()));
-						extra.put("sessionId", siv.getChargeSessUniqId());
-						info.put("action", NoftyType);
-						info.put("notificationId", utils.getIntRandomNumber(9));
-						info.put("extra", String.valueOf(extra));
-						info.put("title", String.valueOf(orgData.get("orgName")));
-						info.put("body", "");
-						info.put("userId", String.valueOf(siv.getStTxnObj().getUserId()));
-						
-						if(deviceTokens.size()>0) {
-							pushNotification.sendMulticastMessage(info, deviceTokens,null,0);
-						}
-					} catch (Exception e) {
-						e.printStackTrace();
 					}
-				}
-			};
-			thread.start();
-		} catch (Exception e) {
-			e.printStackTrace();
+				};
+				thread.start();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
 		}
 	}
 	public void txnAlerts(Double revenue, Double kWh, Double sessionMins, boolean revenueAlertFlag, boolean kWhAlertFlag, boolean durationAlertFlag, String stationRefNum, Long sessId, long orgId, String randomSessionId, String currencyHexCode,long stationId) {
@@ -1548,7 +2074,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 	}
 	public List<Map<String, Object>> previousMeterValuesDataInStop(String sessionId, Date startTransTimeStamp,
-			double startTransactionMeterValue, Double stopTransactionMeterValue, String stnRefNo) {
+																   double startTransactionMeterValue, Double stopTransactionMeterValue, String stnRefNo) {
 		List<Map<String, Object>> listMapData = new ArrayList<>();
 		try {
 			String hqlQuery = "select top 1 s.id as sessionId,os.endTime as DataRcvdTimeStamp,endTimeStamp as previousMeterEndTimeStamp,wattsecondsused as Wattsecondsused,os.energyActiveImportRegisterUnit as units,isnull(atx.amtDebit,0) as amtDebit,"
@@ -1633,14 +2159,13 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			double remainingBalance =new BigDecimal(String.valueOf(accountBalance)).subtract(new BigDecimal(String.valueOf(siv.getUser_crncy_revenue()))).setScale(2, RoundingMode.HALF_UP).doubleValue();
 			logger.info(Thread.currentThread().getId()+"accountBalance : "+accountBalance);
 			logger.info(Thread.currentThread().getId()+"user revenue : "+siv.getUser_crncy_revenue());
-			
-			
+
+
 			AccountTransactions accountTransactionObj = new AccountTransactions();
 			accountTransactionObj.setAmtCredit(0.00);
 			accountTransactionObj.setAmtDebit(siv.getUser_crncy_revenue());
 			accountTransactionObj.setComment("Vehicle charging");
 			accountTransactionObj.setCreateTimeStamp(utils.getUTCDate());
-			accountTransactionObj.setModifiedDate(utils.getUTCDate());
 			accountTransactionObj.setLastUpdatedTime(utils.getUTCDate());
 			accountTransactionObj.setCurrentBalance(remainingBalance);
 			accountTransactionObj.setStatus("SUCCESS");
@@ -1661,30 +2186,29 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			accountTransactionObj.setTax3_amount(0.00);
 			accountTransactionObj.setTax2_pct(0.00);
 			accountTransactionObj.setTax3_pct(0.00);
-			accountTransactionObj.setUid(utils.uuid());
 			accountTransactionObj = generalDao.save(accountTransactionObj);
 			logger.info(Thread.currentThread().getId()+"remainingBalance : "+remainingBalance);
 			if(siv.getTxnData().getPaymentMode() != null && !siv.getTxnData().getPaymentMode().equalsIgnoreCase("Credit Card") && !siv.getTxnData().getPaymentMode().equalsIgnoreCase("Card")) {
-				String queryForAccountBalanceUpdate = "update Accounts set accountBalance=" + remainingBalance +", modifiedDate= GETUTCDATE() where id=" + siv.getUserObj().get("accid");
+				String queryForAccountBalanceUpdate = "update Accounts set accountBalance=" + remainingBalance + " where id=" + siv.getUserObj().get("accid");
 				generalDao.updateHqlQuiries(queryForAccountBalanceUpdate);
 			}
 			siv.setAccTxns(accountTransactionObj);
-			
+//			siv.setSettlementTimeStamp(utils.getUTCDate());
 			callingNegativeBalanceApi(String.valueOf(siv.getUserObj().get("uuid").asText()),Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())),remainingBalance, siv.getStnRefNum());
-			
+
 			insertNotificationTracker(siv);
 		} catch (Exception e) {
 			logger.error(""+e);
 		}
 		return siv;
-	
+
 	}
-	
+
 	@Override
 	public void insertNotificationTracker(SessionImportedValues siv) {
 		try {
 			NotificationTracker notificationTracker=new NotificationTracker();
-			
+
 			notificationTracker.setUserId(siv.getUserObj().get("UserId").asLong());
 			notificationTracker.setAccount_transactionId(siv.getAccTxns().getId());
 			notificationTracker.setSessionId(siv.getChargeSessUniqId());
@@ -1695,27 +2219,9 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			notificationTracker.setResend(false);
 			notificationTracker.setResendCount(0);
 			generalDao.save(notificationTracker);
-			
+
 		} catch (Exception e) {
 			e.printStackTrace();
-		}
-	}
-
-	@Override
-	public boolean insertStopTransaction(StopTransaction stopTxn) {
-		try {
-			OCPPStopTransaction stopTransaction = new OCPPStopTransaction();
-			stopTransaction.setConnectorId(stopTxn.getConnectorId());
-			stopTransaction.setIdTag(stopTxn.getIdTag());
-			stopTransaction.setMeterStop(stopTxn.getMeterStop());
-			stopTransaction.setReason(stopTxn.getReason());
-			stopTransaction.setTimeStamp(stopTxn.getTimeStamp());
-			stopTransaction.setSessionId(stopTxn.getSessionId());
-			generalDao.save(stopTransaction);
-			return true;
-		}catch(Exception e) {
-			e.printStackTrace();
-			return false;
 		}
 	}
 
@@ -1756,12 +2262,12 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 								conn.setRequestProperty("Accept", "application/json");
 								JSONObject requestBody   = new JSONObject();
 								requestBody.put("uid",uuid);
-								
+
 								customLogger.info(stnRefNum,"payDueAmount url requestBody : " + requestBody);
-								
+
 								OutputStreamWriter wr = new OutputStreamWriter(conn.getOutputStream());
 								wr.write(String.valueOf(requestBody));
-								wr.flush();		
+								wr.flush();
 								BufferedReader rd = null;
 								rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
 								String line;
@@ -1784,7 +2290,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			e.printStackTrace();
 		}
 	}
-	
+
 	public Boolean getUserNotificationflag(Long userId) {
 		Boolean singleRecord = false;
 		try {
@@ -1816,7 +2322,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 	}
 	public void insertStopTransactionData(Long connectorId, String rfidTag, Double stopTransactionMeterValue,
-			String reasonForTermination, String randomSessionId, Date stopTransTimeStamp) {
+										  String reasonForTermination, String randomSessionId, Date stopTransTimeStamp) {
 		try {
 
 			OCPPStopTransaction stopTransaction = new OCPPStopTransaction();
@@ -1835,7 +2341,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 	}
 	public void connectedTimeBillingNotification(long userId, String randomSessionId, long orgId, String stationRefNum,
-			Map<String, Object> newComponent) {
+												 Map<String, Object> newComponent) {
 		try {
 			List<DeviceDetails> deviceDetails = OCPPDeviceDetailsService.getDeviceByUser(userId);
 			JSONArray iOSRecipients = new JSONArray();
@@ -1844,7 +2350,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			if (deviceDetails != null) {
 				deviceDetails.forEach(device -> {
 					try {
-						if (device.getOrgId() != null && device.getOrgId().equals(orgId)) {													
+						if (device.getOrgId() != null && device.getOrgId().equals(orgId)) {
 							if (device.getDeviceType().equalsIgnoreCase("Android")) {
 								androidRecipients.add(device.getDeviceToken());
 							} else if (device.getDeviceType().equalsIgnoreCase("iOS")) {
@@ -1855,9 +2361,9 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 						e.printStackTrace();
 					}
 				});
-				
+
 				if (!androidRecipients.isEmpty()) {
-					JSONObject info = new JSONObject();	
+					JSONObject info = new JSONObject();
 					info.put("title", String.valueOf(orgData.get("orgName")));
 					info.put("sound", "default");
 					info.put("action", "Idle Billing");
@@ -1871,7 +2377,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					}
 				}
 				if(!iOSRecipients.isEmpty()) {
-					JSONObject info = new JSONObject();	
+					JSONObject info = new JSONObject();
 					info.put("title",String.valueOf(orgData.get("orgName")));
 					info.put("type","Idle Billing");
 					info.put("sound", "default");
@@ -1890,9 +2396,9 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 	}
 	public void chargingSessionInvoice(SessionImportedValues siv,String userCurrencyCheck,String siteCurrencyCheck,BigDecimal finalCostWithoutSalesTax,BigDecimal salesTaxVal,
-			BigDecimal salesTaxPer,boolean additionalPricing,Map<String,Object> stationObj,String stationRefNum,Map<String,Object> portObj,
-			Map<String,Object> siteObj,String heading,double socStartVal,double socEndVal,String userCurrencySymbol,String duration,long orgId,String orgName,Date stopTransTimeStamp,
-			long sessId,boolean offlineFlag,String reasonForTermination,String sendMailId,String mailSubject,String stationGreetingMail,long userId,long stationId,String userTime,String accountName) {
+									   BigDecimal salesTaxPer,boolean additionalPricing,Map<String,Object> stationObj,String stationRefNum,Map<String,Object> portObj,
+									   Map<String,Object> siteObj,String heading,double socStartVal,double socEndVal,String userCurrencySymbol,String duration,long orgId,String orgName,Date stopTransTimeStamp,
+									   long sessId,boolean offlineFlag,String reasonForTermination,String sendMailId,String mailSubject,String stationGreetingMail,long userId,long stationId,String userTime,String accountName) {
 		/*
 		 * try { PreferredNotification preferedNofy =
 		 * preferedNotifyService.getPreferedNofy(userId); if((preferedNofy != null &&
@@ -1925,7 +2431,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * connectedTimePrice=utils.decimalwithtwodecimals(connectedTimePrice);
 		 * connectorPrice1=utils.decimalwithtwodecimals(connectorPrice1);
 		 * rate2=utils.decimalwithtwodecimals(rate2);
-		 * 
+		 *
 		 * String
 		 * salesTaxPerForMail=utils.decimalwithtwoZeros(utils.decimalwithtwodecimals(
 		 * salesTaxPer)); String
@@ -1940,7 +2446,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * portPriceForMail=utils.decimalwithtwoZeros(new
 		 * BigDecimal(String.valueOf(siv.getPortPrice()))); String
 		 * VendingPricePerUnit2ForMail=utils.decimalwithtwoZeros(rate2);
-		 * 
+		 *
 		 * Map<String,Object> stopMailDetails = new HashMap<String,Object>();
 		 * if(additionalPricing) { stopMailDetails.put("Rate",
 		 * "["+userCurrencySymbol+""+rateForMail+"/"+
@@ -1948,7 +2454,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * +"/"+siv.getAdditionalVendingPriceUnit()+"]"); }else {
 		 * stopMailDetails.put("Rate", userCurrencySymbol+""+rateForMail+"/"+
 		 * siv.getPortPriceUnit()); }DecimalFormat df = new DecimalFormat("0.0000");
-		 * 
+		 *
 		 * Map<String, Object> dealerOrg =
 		 * userService.getDealerOrgName(siv.getStationId());
 		 * stopMailDetails.put("heading", heading); stopMailDetails.put("curDate",
@@ -2022,8 +2528,8 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * stopMailDetails.put("totalParkingCost","$0.00");
 		 * stopMailDetails.put("paymentMethod",siv.getPaymentMode());
 		 * stopMailDetails.put("randomSession", siv.getRandomSessionId());
-		 * 
-		 * 
+		 *
+		 *
 		 * if(additionalPricing) { stopMailDetails.put("Rate1",
 		 * "["+userCurrencySymbol1+""+rateForMail+"/"+
 		 * siv.getPortPriceUnit()+"]["+userCurrencySymbol1+""+
@@ -2036,7 +2542,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * connectorPriceForMail+"/"+String.valueOf(stationObj.get("connectedTimeUnits")
 		 * )+")"); stopMailDetails.put("txnFee1", userCurrencySymbol1+""+txnFeeForMail);
 		 * stopMailDetails.put("TotalCost1", userCurrencySymbol1+""+totalCostForMail);
-		 * 
+		 *
 		 * stopMailDetails.put("salesTax1", userCurrencySymbol1+""+SalesTaxForMail);
 		 * stopMailDetails.put("processingFee1", "$"+""+processingFeeForMail);
 		 * stopMailDetails.put("socValue1", "$"+""+SalesTaxForMail); Map<String, Object>
@@ -2053,14 +2559,14 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		 * data.put("totalKwUsed",String.valueOf(data.get("totalKwUsed"))+"kWh");
 		 * list.add(data); } stopMailDetails.put("tou", flag);
 		 * stopMailDetails.put("orders", list);
-		 * 
+		 *
 		 * customLogger.info(stationRefNum,
 		 * "Stop Txn Mail is Calling ....."+stopMailDetails);
 		 * pdfGenerator.generatePDF(stopMailDetails, orgId,userId);
 		 * emailServiceImpl.sendEmail(new MailForm(sendMailId, mailSubject,
 		 * stationGreetingMail),stopMailDetails,orgId,stationRefNum,stationId); }else {
 		 * logger.info(Thread.currentThread().getId()+"user disabled the charging session completed mail alert"); }
-		 * 
+		 *
 		 * }catch (Exception e) { e.printStackTrace(); }
 		 */
 	}
@@ -2095,7 +2601,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				map.put("portId", "0");
 			}
 		} catch (Exception e) {
-			
+
 			e.printStackTrace();
 		}
 		return map;
@@ -2122,7 +2628,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					avgPower=String.valueOf((Double.parseDouble(String.valueOf(avgPower))+Double.parseDouble(String.valueOf(session.getAvg_power())))/2);
 				}
 				logger.info(Thread.currentThread().getId()+"meterValueCount : "+meterValueCount);
-				if(meterValueCount==0 || session.getSocStartVal()==0) {
+				if(meterValueCount==0) {
 					socStart=Double.valueOf(String.valueOf(siv.getSoCValue()).equalsIgnoreCase("null") == true ? "0.00" : String.valueOf(siv.getSoCValue()));
 				}else {
 					socStart=session.getSocStartVal();
@@ -2141,12 +2647,9 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				session.setSocEndVal(socEnd);
 				session.setAvg_power(avgPower);
 				session.setMin_power(minPower);
-//				session.setTransactionId(siv.getStTxnObj().getTransactionId());
+				session.setStartTimeStamp(siv.getStartTransTimeStamp());
 				session.setPowerActiveImport_value(Double.valueOf(peakPower));
 				session.setSuccessFlag(Double.valueOf(String.valueOf(siv.getTotalKwUsed().doubleValue())) >= 0.25 && Double.valueOf(String.valueOf(siv.getSessionDuration().doubleValue())) >= 5);
-				session.setModifiedDate(utils.getUTCDate());
-				session.setActualEnergy(siv.getActualEnergy().doubleValue());
-				session.setEnergyModify(siv.isEnergyModify());
 				if(siv.getTxnData().getReward() != null) {
 					JsonNode rewardPrices = objectMapper.readTree(siv.getTxnData().getReward());
 					session.setRewardValue(session.getRewardType().equalsIgnoreCase("Amount") ? rewardPrices.get(0).get("usedAmount").asDouble() : session.getRewardType().equalsIgnoreCase("kWh") ? rewardPrices.get(0).get("usedkWh").asDouble() : 0);
@@ -2163,7 +2666,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		return siv;
 	}
 	@Override
-	public SessionImportedValues insertIntoStopSessionData(SessionImportedValues siv) {
+	public SessionImportedValues 	insertIntoStopSessionData(SessionImportedValues siv) {
 		try {
 			Session session = generalDao.findOne("FROM Session where sessionId='"+siv.getChargeSessUniqId()+"'", new Session());
 			if(session != null) {
@@ -2171,7 +2674,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				logger.info(Thread.currentThread().getId()+"reasonForTer : "+reasonForTer);
 				siv.setReasonForTermination(reasonForTer);
 				String settlement="settled";
-				if(siv.isIdleBilling()) {
+				if(siv.isIdleBilling() && !siv.getStTxnObj().isOfflineFlag()) {
 					if(reasonForTer.equalsIgnoreCase("Remote")||reasonForTer.equalsIgnoreCase("EVDisconnected")||reasonForTer.equalsIgnoreCase("Local")) {
 						reasonForTer=session.getReasonForTer();
 						settlement=session.getSettlement();
@@ -2183,7 +2686,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 						siv = amountDeduction(siv);
 					}
 				}
-				
+
 				session.setFinalCostInSlcCurrency(siv.getFinalCostInslcCurrency());
 				session.setCost(siv.getFinalCosttostore());
 				session.setSessionElapsedInMin(siv.getSessionDuration().doubleValue());
@@ -2194,16 +2697,14 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				session.setReasonForTer(reasonForTer);
 				session.setTransactionStatus("completed");
 				session.setSuccessFlag(Double.valueOf(String.valueOf(siv.getTotalKwUsed().doubleValue())) >= 0.25 && Double.valueOf(String.valueOf(siv.getSessionDuration().doubleValue())) >= 5);
-				session.setModifiedDate(utils.getUTCDate());
-				session.setActualEnergy(siv.getActualEnergy().doubleValue());
-				session.setEnergyModify(siv.isEnergyModify());
+//				session.setSettlementTimeStamp(siv.getSettlementTimeStamp());
 
 				if(siv.getAccTxns() != null) {
 					AccountTransactions acc = new AccountTransactions();
 					acc.setId(siv.getAccTxns() != null ? siv.getAccTxns().getId():null);
 					session.setAccountTransaction(acc);
 				}
-				
+
 				if(siv.getTxnData().getReward() != null) {
 					JsonNode rewardPrices = objectMapper.readTree(siv.getTxnData().getReward());
 					session.setRewardValue(session.getRewardType().equalsIgnoreCase("Amount") ? rewardPrices.get(0).get("usedAmount").asDouble() : session.getRewardType().equalsIgnoreCase("kWh") ? rewardPrices.get(0).get("usedkWh").asDouble() : 0);
@@ -2243,7 +2744,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 				}else if(String.valueOf(siv.getUserObj().get("crncy_Code").asText()).equalsIgnoreCase(String.valueOf(siv.getSiteObj().get("crncy_Code").asText()))){
 					siv.setUser_crncy_revenue(siv.getNeedToDebit());
 				}
-				
+
 				if(siv.getTxnData().getUserType() != null && siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") ) {
 					if(siv.getTxnData().getPaymentMode().equalsIgnoreCase("Wallet")) {
 						siv = insertIntoAccountTransaction(siv);
@@ -2272,7 +2773,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 					guestUserTransaction = new AccountTransactionForGuestUser();
 				else
 					guestUserTransaction.setId(guestUserTransaction.getId());
-				
+
 				guestUserTransaction.setRevenue(siv.getFinalCostInslcCurrency());
 				guestUserTransaction.setSessionId(siv.getChargeSessUniqId());
 				guestUserTransaction.setTime(utils.getUTCDate());
@@ -2325,7 +2826,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return siv;
 	}
-	
+
 	@Override
 	public Map<String, Object> getPayGBySessionId(String sessionId) {
 		Map<String, Object> findAll=new HashMap<>();
@@ -2426,36 +2927,39 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			e.printStackTrace();
 		}
 	}
+
 	@Override
 	public SessionImportedValues lowBalanceValidation(SessionImportedValues siv) {
 		try {
-			if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && !siv.getTxnData().isRstp() && !siv.getTxnData().isDgNoZeroBal()) {
-				Double accBal = OCPPAccountAndCredentialService.getNormalUserBalance(siv.getStTxnObj().getUserId(), siv.getStnRefNum());
-				logger.info(Thread.currentThread().getId()+"accBal : "+accBal);
-				boolean cardChecking=cardChecking(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
-				if(siv.getNeedToDebit()>0 && siv.getNeedToDebit() > accBal && !siv.getTxnData().isRstp() && !cardChecking) {
-					siv.getTxnData().setRstp(true);
-					OCPPForm of = new OCPPForm();
-					of.setStationId(Long.valueOf(String.valueOf(siv.getStnObj().get("stnId").asLong())));
-					of.setConnectorId(Long.valueOf(String.valueOf(siv.getStnObj().get("portId").asLong())));
-					of.setRequestType("RemoteStop");
-					utils.ocppStopCalling(of);
-					alertsService.lowBalancePushNotiAlert(siv);
-					alertsService.lowBalanceMailAlert(siv,utils.decimalwithtwodecimals(new BigDecimal((accBal - siv.getNeedToDebit()))).doubleValue());
-					alertsService.smsLowBalanceAlert(siv);
-				}
-			}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG") && !siv.getTxnData().isRstp() && !siv.getTxnData().getBillingCases().contains("Free")) {
-				JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
-				if(userJson.size() > 0) {
-					Double authorizeAmount = userJson.get("authorizeAmount").asDouble();
-					logger.info(Thread.currentThread().getId()+"authorizeAmount : "+authorizeAmount);
-					if(authorizeAmount != 0 && siv.getFinalCostInslcCurrency() > (authorizeAmount-2) && !siv.getTxnData().isRstp()) {
+			if (!siv.getStTxnObj().isOfflineFlag()) {
+				if (siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser") && !siv.getTxnData().isRstp() && !siv.getTxnData().isDgNoZeroBal()) {
+					Double accBal = OCPPAccountAndCredentialService.getNormalUserBalance(siv.getStTxnObj().getUserId(), siv.getStnRefNum());
+					logger.info(Thread.currentThread().getId() + "accBal : " + accBal);
+					boolean cardChecking = cardChecking(Long.valueOf(String.valueOf(siv.getUserObj().get("UserId").asLong())));
+					if (siv.getNeedToDebit() > 0 && siv.getNeedToDebit() > accBal && !siv.getTxnData().isRstp() && !cardChecking) {
 						siv.getTxnData().setRstp(true);
 						OCPPForm of = new OCPPForm();
 						of.setStationId(Long.valueOf(String.valueOf(siv.getStnObj().get("stnId").asLong())));
 						of.setConnectorId(Long.valueOf(String.valueOf(siv.getStnObj().get("portId").asLong())));
 						of.setRequestType("RemoteStop");
 						utils.ocppStopCalling(of);
+						alertsService.lowBalancePushNotiAlert(siv);
+						alertsService.lowBalanceMailAlert(siv, utils.decimalwithtwodecimals(new BigDecimal((accBal - siv.getNeedToDebit()))).doubleValue());
+						alertsService.smsLowBalanceAlert(siv);
+					}
+				} else if (siv.getTxnData().getUserType().equalsIgnoreCase("PAYG") && !siv.getTxnData().isRstp() && !siv.getTxnData().getBillingCases().contains("Free")) {
+					JsonNode userJson = objectMapper.readTree(siv.getTxnData().getUser_obj());
+					if (userJson.size() > 0) {
+						Double authorizeAmount = userJson.get("authorizeAmount").asDouble();
+						logger.info(Thread.currentThread().getId() + "authorizeAmount : " + authorizeAmount);
+						if (authorizeAmount != 0 && siv.getFinalCostInslcCurrency() > (authorizeAmount - 2) && !siv.getTxnData().isRstp()) {
+							siv.getTxnData().setRstp(true);
+							OCPPForm of = new OCPPForm();
+							of.setStationId(Long.valueOf(String.valueOf(siv.getStnObj().get("stnId").asLong())));
+							of.setConnectorId(Long.valueOf(String.valueOf(siv.getStnObj().get("portId").asLong())));
+							of.setRequestType("RemoteStop");
+							utils.ocppStopCalling(of);
+						}
 					}
 				}
 			}
@@ -2464,7 +2968,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 		}
 		return siv;
 	}
-	
+
 	@Override
 	public void updateTxnData(OCPPTransactionData TXN) {
 		try {
@@ -2488,12 +2992,12 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			e.printStackTrace();
 		}
 	}
-	
+
 	@Override
 	public void idleBilling(String sessionId,String time) {
 		try {
 			OCPPTransactionData txnData = generalDao.findOne("FROM OCPPTransactionData where sessionId='"+sessionId+"' and stop=1 order by id desc", new OCPPTransactionData());
-			if(txnData!=null) {
+			if(txnData!=null && !txnData.isOfflineTransaction()) {
 				Date statsTime=utils.stringToDate(time);
 				JsonNode tariff = objectMapper.readTree(txnData.getTariff_prices());
 				if(tariff.size() > 0) {
@@ -2525,11 +3029,11 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 									BigDecimal cost = new BigDecimal("0.00");
 									BigDecimal tempIdleMins =new BigDecimal("0.00");
 									Map<String,Object> idlePrice = new HashMap<String,Object>();
-									if(ses.getCost()>0 && idleTimeMins.doubleValue() > 0 && idleTimeMins.doubleValue() > gracePeriod.doubleValue() && !txnData.getIdleStatus().equalsIgnoreCase("faulted") && 
+									if(ses.getCost()>0 && idleTimeMins.doubleValue() > 0 && idleTimeMins.doubleValue() > gracePeriod.doubleValue() && !txnData.getIdleStatus().equalsIgnoreCase("faulted") &&
 											!txnData.getIdleStatus().equalsIgnoreCase("Preparing") && !txnData.getIdleStatus().equalsIgnoreCase("SuspendedEVSE") && !txnData.getIdleStatus().equalsIgnoreCase("SuspendedEV") && !txnData.getIdleStatus().equalsIgnoreCase("Charging")&& !txnData.getIdleStatus().equalsIgnoreCase("Available")) {
-										
-									    tempIdleMins = idleTimeMins.subtract(gracePeriod);
-										
+
+										tempIdleMins = idleTimeMins.subtract(gracePeriod);
+
 										if(step == 3600) {
 											cost = cost.add(tempIdleMins.multiply(new BigDecimal(60)).multiply(idleChargePrice.divide(new BigDecimal(3600), 15, RoundingMode.HALF_UP))).setScale(2,RoundingMode.HALF_UP);
 										}
@@ -2537,7 +3041,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 											cost = cost.add(tempIdleMins.multiply(new BigDecimal(60)).multiply(idleChargePrice.divide(new BigDecimal(60), 15, RoundingMode.HALF_UP))).setScale(2,RoundingMode.HALF_UP);
 										}
 										logger.info(Thread.currentThread().getId()+"idleTimeMins cost : "+cost);
-										
+
 										idleBillCapCost = cost;
 										if(cost.doubleValue() >= idleBillCap.doubleValue() ) {
 											cost = idleBillCap;
@@ -2545,7 +3049,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										cost = cost.setScale(2,RoundingMode.HALF_UP);
 										idlePrice.put("idleStartTime", utils.stringToDate(utils.addDateSec(ses.getEndTimeStamp(),(int) gracePeriod.doubleValue()*60)));
 										idlePrice.put("idleEndTime", utils.stringToDate(statsTime));
-											
+
 									}
 									JsonNode costInfoJSON = objectMapper.readTree(sesPrices.getCost_info());
 									logger.info(Thread.currentThread().getId()+"costInfoJSON : "+costInfoJSON);
@@ -2560,8 +3064,8 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										tariffMap.put("tariffName", costInfoJSON.get(0).get("tariffName"));
 										tariffMap.put("startTime", costInfoJSON.get(0).get("startTime"));
 										tariffMap.put("endTime", costInfoJSON.get(0).get("endTime"));
-										
-										
+
+
 										Map<String,Object> aditionalSubMap = new HashMap<>();
 										List<Map<String,Object>> taxls=new ArrayList();
 										JsonNode taxes=objectMapper.readTree(String.valueOf(costInfoJSON.get(0).get("cost_info").get(0).get("aditional").get("tax")));
@@ -2571,16 +3075,16 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										if(rateRider.size()>0) {
 											rateRiderType = rateRider.get("type").asText();
 											rateRiderAmount=new BigDecimal(rateRider.get("amount").asText()).setScale(2, RoundingMode.HALF_UP);
-											
+
 										}
 										BigDecimal totalTaxPer=new BigDecimal("0");
 										if(taxes!=null && taxes.size()>0) {
-											 for(int i=0;i < taxes.size();i++) {
-												 JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxes.get(i)));
-												 if(taxJsonMap.size() > 0) {
-													 totalTaxPer=totalTaxPer.add(new BigDecimal(taxJsonMap.get("percnt").asText()));
-												 }
-											 }
+											for(int i=0;i < taxes.size();i++) {
+												JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxes.get(i)));
+												if(taxJsonMap.size() > 0) {
+													totalTaxPer=totalTaxPer.add(new BigDecimal(taxJsonMap.get("percnt").asText()));
+												}
+											}
 										}
 										if(totalTaxPer.doubleValue()>0 && cost.doubleValue()>0) {
 											BigDecimal multiply = (cost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(totalTaxPer)).setScale(2, RoundingMode.HALF_UP);
@@ -2595,27 +3099,27 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										BigDecimal totalTax=new BigDecimal("0.0");
 										BigDecimal connectedTimeBill=cost;
 										if(taxes!=null && taxes.size()>0) {
-											 for(int i=0;i < taxes.size();i++) {
-												 JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxes.get(i)));
-												 if(taxJsonMap.size() > 0) {
-													 Map<String,Object> taxSubMap = new HashMap<>();
-													 String name = taxJsonMap.get("name").asText();
-													 BigDecimal taxAmount = new BigDecimal(taxJsonMap.get("amount").asText());
-													 BigDecimal taxPercent = new BigDecimal(taxJsonMap.get("percnt").asText());
-													 BigDecimal multiply = (cost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
-													 costWithTax=costWithTax.add(multiply);
-													 BigDecimal totaltaxAmount=taxAmount.add(multiply).setScale(2,RoundingMode.HALF_UP);
-													 
-													 taxSubMap.put("name", name);
-													 taxSubMap.put("percnt", taxPercent);
-													 taxSubMap.put("restrictionType", "TAX");
-													 taxSubMap.put("amount", totaltaxAmount);
-													 taxSubMap.put("idleAmount", multiply);
-													 taxSubMap.put("chargingAmount", taxAmount);
-													 taxls.add(taxSubMap);
-													 totalTax=totalTax.add(totaltaxAmount).setScale(2,RoundingMode.HALF_UP);
-												 }
-											 }
+											for(int i=0;i < taxes.size();i++) {
+												JsonNode taxJsonMap = objectMapper.readTree(String.valueOf(taxes.get(i)));
+												if(taxJsonMap.size() > 0) {
+													Map<String,Object> taxSubMap = new HashMap<>();
+													String name = taxJsonMap.get("name").asText();
+													BigDecimal taxAmount = new BigDecimal(taxJsonMap.get("amount").asText());
+													BigDecimal taxPercent = new BigDecimal(taxJsonMap.get("percnt").asText());
+													BigDecimal multiply = (cost.divide(new BigDecimal(100),9, RoundingMode.HALF_UP).multiply(taxPercent)).setScale(2, RoundingMode.HALF_UP);
+													costWithTax=costWithTax.add(multiply);
+													BigDecimal totaltaxAmount=taxAmount.add(multiply).setScale(2,RoundingMode.HALF_UP);
+
+													taxSubMap.put("name", name);
+													taxSubMap.put("percnt", taxPercent);
+													taxSubMap.put("restrictionType", "TAX");
+													taxSubMap.put("amount", totaltaxAmount);
+													taxSubMap.put("idleAmount", multiply);
+													taxSubMap.put("chargingAmount", taxAmount);
+													taxls.add(taxSubMap);
+													totalTax=totalTax.add(totaltaxAmount).setScale(2,RoundingMode.HALF_UP);
+												}
+											}
 										}
 										finalCost =new BigDecimal(String.valueOf(ses.getCost())).add(totalTax).add(connectedTimeBill).setScale(2,RoundingMode.HALF_UP);
 										if(rateRiderType.equalsIgnoreCase("-ve")) {
@@ -2638,8 +3142,8 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										idlePrice.put("tax_excl", cost.setScale(2,RoundingMode.HALF_UP));
 										idlePrice.put("gracePeriodStartTime",utils.stringToDate(ses.getEndTimeStamp()));
 										idlePrice.put("gracePeriodEndTime", utils.stringToDate(utils.addDateSec(ses.getEndTimeStamp(),(int) gracePeriod.doubleValue()*60)));
-										
-										
+
+
 										aditionalSubMap.put("tax", taxls);
 										aditionalSubMap.put("rateRider", objectMapper.readTree(String.valueOf(costInfoJSON.get(0).get("cost_info").get(0).get("aditional").get("rateRider"))));
 										aditionalSubMap.put("idle", idlePrice);
@@ -2650,13 +3154,13 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										tariffLs.add(tariffMap);
 										String json = objectMapper.writeValueAsString(tariffLs);
 										logger.info(Thread.currentThread().getId()+"json : "+json);
-										
+
 										//aditionalInfoLs.add(idlePriceMap);
 										//costInfoLs.addAll(aditionalInfoLs);
 										sesPrices.setCost_info(json);
 										generalDao.update(sesPrices);
-										
-									    logger.info(Thread.currentThread().getId()+"finalCost at idle cost : "+finalCost);
+
+										logger.info(Thread.currentThread().getId()+"finalCost at idle cost : "+finalCost);
 									}else {
 										logger.info(Thread.currentThread().getId()+"Idle time is less than grace time : "+sessionId);
 									}
@@ -2684,7 +3188,7 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 										acc.setId(siv.getAccTxns() != null ? siv.getAccTxns().getId():null);
 										accountTransactionId=acc.getId();
 									}
-									String sessUpdate = "update session set finalCostInSlcCurrency = "+siv.getFinalCostInslcCurrency()+",reasonForTer='"+txnData.getReasonForTer()+"',accountTransaction_id="+accountTransactionId+",settlement='settled',modifiedDate=GETUTCDATE() where sessionId = '"+sessionId+"'";
+									String sessUpdate = "update session set finalCostInSlcCurrency = "+siv.getFinalCostInslcCurrency()+",reasonForTer='"+txnData.getReasonForTer()+"',accountTransaction_id="+accountTransactionId+",settlement='settled', settlementTimeStamp=GETUTCDATE() where sessionId = '"+sessionId+"'";
 									logger.info(Thread.currentThread().getId()+"update sess query : "+sessUpdate);
 									executeRepository.update(sessUpdate);
 //									if(ses.getUserId()!=null && ses.getUserId()!=0) {
@@ -2707,23 +3211,23 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 									siv.setNotification(notification);
 									siv.setMail(mail.equalsIgnoreCase("success"));
 									JsonNode userJson = objectMapper.readTree(txnData.getUser_obj());
-									  if(userJson.size() > 0) {
-										  boolean smsIdleBilling=false;
-										  if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
-												PreferredNotification pn = alertsService.preferredNotify(siv.getUserObj().get("UserId").asLong());
-												if(pn != null && pn.isSmsIdleBilling()) {
-													smsIdleBilling = true;
-												}
-											}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
+									if(userJson.size() > 0) {
+										boolean smsIdleBilling=false;
+										if(siv.getTxnData().getUserType().equalsIgnoreCase("RegisteredUser")) {
+											PreferredNotification pn = alertsService.preferredNotify(siv.getUserObj().get("UserId").asLong());
+											if(pn != null && pn.isSmsIdleBilling()) {
 												smsIdleBilling = true;
 											}
+										}else if(siv.getTxnData().getUserType().equalsIgnoreCase("PAYG")){
+											smsIdleBilling = true;
+										}
 										if(smsIdleBilling) {
 											String phoneNumber = String.valueOf(userJson.get("phoneNumber").asText());
-										 boolean sms=smsIntegrationImpl.sendSMSUsingBootConfg(stationObj.get("referNo").asText(),String.valueOf(ses.getId()),"stop",0.0,phoneNumber,step==360?"hour":"minute",String.valueOf(0),sessionId,0);
-										 siv.setSms(sms);
+											boolean sms=smsIntegrationImpl.sendSMSUsingBootConfg(stationObj.get("referNo").asText(),String.valueOf(ses.getId()),"stop",0.0,phoneNumber,step==360?"hour":"minute",String.valueOf(0),sessionId,0);
+											siv.setSms(sms);
 										}
-									  }
-									  ocppDeviceDetailsService.deleteDeviceDetails(stationObj.get("stnId").asLong(),ses.getUserId());
+									}
+									ocppDeviceDetailsService.deleteDeviceDetails(stationObj.get("stnId").asLong(),ses.getUserId());
 								}
 							}else {
 								logger.info(Thread.currentThread().getId()+"Idle charge billing is not selected for this session : "+txnData.getSessionId());
@@ -2736,5 +3240,15 @@ public class OCPPMeterValueServiceImpl implements ocppMeterValueService{
 			logger.error(""+e);
 		}
 	}
-	
+
 }
+
+//class SessionBillableValues {
+//	BigDecimal lastBillableKwh;
+//	BigDecimal lastBillableDuration;
+//
+//	public SessionBillableValues() {
+//		this.lastBillableKwh = null;
+//		this.lastBillableDuration = null;
+//	}
+//}

@@ -3,16 +3,13 @@ package com.evg.ocpp.txns.webSocket;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+import com.evg.ocpp.txns.Service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import com.evg.ocpp.txns.Service.LMRequestService;
-import com.evg.ocpp.txns.Service.StationService;
-import com.evg.ocpp.txns.Service.StatusNotificationService;
-import com.evg.ocpp.txns.Service.alertsService;
 import com.evg.ocpp.txns.ServiceImpl.OCPPMeterValueServiceImpl;
 import com.evg.ocpp.txns.ServiceImpl.chargingIntervalServiceImpl;
 import com.evg.ocpp.txns.forms.FinalData;
@@ -73,21 +70,14 @@ public class TransactionService {
 	@Autowired
 	private chargingIntervalServiceImpl chargingIntervalServiceImpl;
 
+	@Autowired
+	private OfflineTransactionHandlerService offlineTransactionHandler;
+
 	private final static Logger logger = LoggerFactory.getLogger(TransactionService.class);
 
 	public void stopTransaction(FinalData finalData, String stationRefNum, String requestMessage,long stnId) {
 		SessionImportedValues siv = new SessionImportedValues();
 		StopTransaction stopTxnObj=finalData.getStopTransaction();
-
-		StopTransaction stopTxn = new StopTransaction();
-		stopTxn.setTransactionId(stopTxnObj.getTransactionId());
-		stopTxn.setMeterStop(stopTxnObj.getMeterStop());
-		stopTxn.setIdTag(stopTxnObj.getIdTag());
-		stopTxn.setTimeStamp(stopTxnObj.getTimeStamp());
-		stopTxn.setReason(stopTxnObj.getReason());
-//		stopTxn.setConnectorId(stopTxnObj.getConnectorId());
-//		stopTxn.setSessionId(stopTxnObj.getSessionId());
-
 		siv.setRequest(requestMessage);
 		siv.setResponse("[3,\"" + finalData.getSecondValue()+ "\",{\"idTagInfo\":{\"status\":\"Accepted\"}}]");
 		siv.setStnRefNum(stationRefNum);
@@ -104,26 +94,30 @@ public class TransactionService {
 					siv.setStTxnObj(startTxnObj);
 					siv.setPortId(startTxnObj.getConnectorId());
 					siv.setAmpFlag(stationService.getAmpFlagByStnId(stnId));
+
 					OCPPTransactionData txnData = ocppMeterValueService.getTxnData(startTxnObj);
+					siv.setChargeSessUniqId(txnData.getSessionId());
+					siv = offlineTransactionHandler.handleOfflineStopTransaction(siv, startTxnObj, stopTxnObj);
+
 					OCPITransactionData ocpitxnData = ocppMeterValueService.getOCPITxnData(startTxnObj);
 					if(ocpitxnData != null && ocpitxnData.getUserType().equalsIgnoreCase("OCPI")) {
 						siv.setChargeSessUniqId(ocpitxnData.getSessionId());
 						ocppMeterValueService.ocpiMeterStopCall(requestMessage, stationRefNum,ocpitxnData.getSessionId(),startTxnObj.getStationId());
-					}else if(txnData != null && !txnData.getUserType().equalsIgnoreCase("OCPI")){
-						stopTxn.setConnectorId(objectMapper.readTree(txnData.getStn_obj()).get("connector_id").asLong());
-						stopTxn.setSessionId(startTxnObj.getSessionId());
+					}else if(txnData != null && !txnData.getUserType().equalsIgnoreCase("OCPI")) {
 						siv.setStnObj(objectMapper.readTree(txnData.getStn_obj()));
 						siv.setStnId(Long.valueOf(String.valueOf(siv.getStnObj().get("stnId").asLong())));
 						siv.setSiteObj(objectMapper.readTree(txnData.getSite_obj()));
 						siv.setChargeSessUniqId(txnData.getSessionId());
 						siv.setTxnData(txnData);
 						siv.setSesspricings(ocppMeterValueService.getSessesionPricing(txnData.getSessionId()));
-						siv.setMeterValueTimeStatmp(stopTxnObj.getTimeStamp());
+						if (!startTxnObj.isOfflineFlag()) {
+							siv.setMeterValueTimeStatmp(stopTxnObj.getTimeStamp());
+						}
 						siv.setUserObj(objectMapper.readTree(txnData.getUser_obj()));
 						siv.setPreviousSessionData(ocppMeterValueService.getPreviousSessionData(txnData.getSessionId()));
 						siv.setSessionDuration(new BigDecimal(String.valueOf(utils.getTimeDifferenceInMiliSec(startTxnObj.getTimeStamp(), siv.getMeterValueTimeStatmp()).get("Minutes"))).setScale(20, RoundingMode.HALF_DOWN));
 						siv.setStop(true);
-						siv = meterValueReadings.energyConsumptionCalc(siv);
+						siv = meterValueReadings.energyConsumptionCalc(siv, startTxnObj);
 						siv.setBillSessionDuration(siv.getSessionDuration());
 						siv = ocppMeterValueService.billing(siv);
 						siv = ocppMeterValueService.amountDeduction(siv);
@@ -131,16 +125,14 @@ public class TransactionService {
 						ocppMeterValueService.insertIntoSessionPricings(siv);
 						ocppMeterValueService.deleteTxnData(siv);
 						ocppMeterValueService.deleteOCPPSessionData(txnData.getSessionId());
-						ocppMeterValueService.sendPushNotification(siv,"Meter Value");
-						siv=alertsService.chargingActivityMail(siv);
-						siv=alertsService.smsChargingSessionSummaryData(siv);
-						siv=alertsService.notifyChargingSessionSummaryData(siv);
+						ocppMeterValueService.sendPushNotification(siv, "Meter Value");
+						siv = alertsService.chargingActivityMail(siv);
+						siv = alertsService.smsChargingSessionSummaryData(siv);
+						siv = alertsService.notifyChargingSessionSummaryData(siv);
 						alertsService.mailInActiveBilling(siv);
 						alertsService.notifyInActiveBilling(siv);
 						alertsService.alertPAYGStop(siv);
-						alertsService.sendMeterValueViolationAlert(siv);
 						ocppMeterValueService.sessionInterruptAlert(siv,stopTxnObj);
-						ocppMeterValueService.insertStopTransaction(stopTxn);
 						lmRequestService.sendingRequestsToLM("StopTransaction", requestMessage, siv, stopTxnObj.getTimestampStr().replace("T", " ").replace("Z", ""), Long.valueOf(String.valueOf(siv.getStnObj().get("connector_id").asLong())));
 						chargingIntervalServiceImpl.chargingIntervalDataLogs(siv);
 					}else {
@@ -169,3 +161,4 @@ public class TransactionService {
 	}
 
 }
+

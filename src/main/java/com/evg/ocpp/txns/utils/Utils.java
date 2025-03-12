@@ -763,6 +763,7 @@ public class Utils {
 
         return formattedMinutes + "m " + formattedSeconds + "s";
     }
+
 	public double round2decimals(double value) {
 		try {
 	        DecimalFormat df_obj = new DecimalFormat("#.##");

@@ -106,6 +106,7 @@ public class SessionImportedValues {
 
 	private Date meterValueTimeStatmp;
 	private Date startTransTimeStamp;
+	private Date settlementTimeStamp;
 	
 	private String CurrentImportDiffValue;
 	private String PowerActiveImportDiffValue;
@@ -153,6 +154,9 @@ public class SessionImportedValues {
 	private AccountTransactionForGuestUser paygAccTxns;
 	private String cost_pricings;
 	private Map<String,Object> previousSessionData;
+
+	private BigDecimal sessionFreeKwhAllocation;
+	private BigDecimal sessionFreeMinAllocation;
 	
 	private String user_crncy_HexCode;
 	private String user_crncy_Code;
@@ -183,18 +187,9 @@ public class SessionImportedValues {
 	private boolean sms=false;
 	private boolean notification=false;
 	private boolean currentScreen=false;
-
-	private boolean energyModify=false;
-	private BigDecimal actualEnergy=new BigDecimal("0.0");
-
-	public BigDecimal getActualEnergy() {
-		return actualEnergy;
-	}
-
-	public void setActualEnergy(BigDecimal actualEnergy) {
-		this.actualEnergy = actualEnergy;
-	}
-
+    
+	
+    
 	public boolean isCurrentScreen() {
 		return currentScreen;
 	}
@@ -735,6 +730,9 @@ public class SessionImportedValues {
 	public void setStartTransTimeStamp(Date startTransTimeStamp) {
 		this.startTransTimeStamp = startTransTimeStamp;
 	}
+	public Date getSettlementTimeStamp() {return settlementTimeStamp;}
+	public void setSettlementTimeStamp(Date settlementTimeStamp) {this.settlementTimeStamp = settlementTimeStamp;}
+
 	public String getUnqReqId() {
 		return unqReqId;
 	}
@@ -1123,173 +1121,92 @@ public class SessionImportedValues {
 		this.session = session;
 	}
 
-	public boolean isEnergyModify() {
-		return energyModify;
-	}
-
-	public void setEnergyModify(boolean energyModify) {
-		this.energyModify = energyModify;
-	}
+	public BigDecimal getSessionFreeKwhAllocation() {return sessionFreeKwhAllocation;}
+	public void setSessionFreeKwhAllocation(BigDecimal sessionFreeKwhAllocation) {this.sessionFreeKwhAllocation = sessionFreeKwhAllocation;}
+	public BigDecimal getSessionFreeMinAllocation() {return sessionFreeMinAllocation;}
+	public void setSessionFreeMinAllocation(BigDecimal sessionFreeMinAllocation) {this.sessionFreeMinAllocation = sessionFreeMinAllocation;}
 
 	@Override
 	public String toString() {
-		return "SessionImportedValues{" +
-				"currentImportContext='" + currentImportContext + '\'' +
-				", currentImportFormat='" + currentImportFormat + '\'' +
-				", currentImportLocation='" + currentImportLocation + '\'' +
-				", currentImportPhase='" + currentImportPhase + '\'' +
-				", currentImportUnit='" + currentImportUnit + '\'' +
-				", currentImportValue='" + currentImportValue + '\'' +
-				", currentImportMeasurand='" + currentImportMeasurand + '\'' +
-				", currentOfferedContext='" + currentOfferedContext + '\'' +
-				", currentOfferedFormat='" + currentOfferedFormat + '\'' +
-				", currentOfferedLocation='" + currentOfferedLocation + '\'' +
-				", currentOfferedMeasurand='" + currentOfferedMeasurand + '\'' +
-				", currentOfferedPhase='" + currentOfferedPhase + '\'' +
-				", currentOfferedUnit='" + currentOfferedUnit + '\'' +
-				", currentOfferedValue='" + currentOfferedValue + '\'' +
-				", energyActiveImportRegisterContext='" + energyActiveImportRegisterContext + '\'' +
-				", energyActiveImportRegisterFormat='" + energyActiveImportRegisterFormat + '\'' +
-				", energyActiveImportRegisterLocation='" + energyActiveImportRegisterLocation + '\'' +
-				", energyActiveImportRegisterMeasurand='" + energyActiveImportRegisterMeasurand + '\'' +
-				", energyActiveImportRegisterPhase='" + energyActiveImportRegisterPhase + '\'' +
-				", energyActiveImportRegisterUnit='" + energyActiveImportRegisterUnit + '\'' +
-				", energyActiveImportRegisterValue='" + energyActiveImportRegisterValue + '\'' +
-				", powerActiveImportContext='" + powerActiveImportContext + '\'' +
-				", powerActiveImportFormat='" + powerActiveImportFormat + '\'' +
-				", powerActiveImportLocation='" + powerActiveImportLocation + '\'' +
-				", powerActiveImportMeasurand='" + powerActiveImportMeasurand + '\'' +
-				", powerActiveImportPhase='" + powerActiveImportPhase + '\'' +
-				", powerActiveImportUnit='" + powerActiveImportUnit + '\'' +
-				", powerActiveImportValue='" + powerActiveImportValue + '\'' +
-				", powerActiveImportSessionValue=" + powerActiveImportSessionValue +
-				", powerOfferedContext='" + powerOfferedContext + '\'' +
-				", powerOfferedFormat='" + powerOfferedFormat + '\'' +
-				", powerOfferedLocation='" + powerOfferedLocation + '\'' +
-				", powerOfferedMeasurand='" + powerOfferedMeasurand + '\'' +
-				", powerOfferedPhase='" + powerOfferedPhase + '\'' +
-				", powerOfferedUnit='" + powerOfferedUnit + '\'' +
-				", powerOfferedValue='" + powerOfferedValue + '\'' +
-				", SoCContext='" + SoCContext + '\'' +
-				", SoCformat='" + SoCformat + '\'' +
-				", SoClocation='" + SoClocation + '\'' +
-				", SoCMeasurand='" + SoCMeasurand + '\'' +
-				", SoCPhase='" + SoCPhase + '\'' +
-				", SoCUnit='" + SoCUnit + '\'' +
-				", SoCValue='" + SoCValue + '\'' +
-				", EnergyActiveExportRegisterUnit='" + EnergyActiveExportRegisterUnit + '\'' +
-				", EnergyReactiveImportRegisterUnit='" + EnergyReactiveImportRegisterUnit + '\'' +
-				", EnergyActiveExportIntervalUnit='" + EnergyActiveExportIntervalUnit + '\'' +
-				", EnergyActiveImportIntervalUnit='" + EnergyActiveImportIntervalUnit + '\'' +
-				", EnergyReactiveImportIntervalUnit='" + EnergyReactiveImportIntervalUnit + '\'' +
-				", EnergyReactiveExportRegisterUnit='" + EnergyReactiveExportRegisterUnit + '\'' +
-				", EnergyReactiveExportIntervalUnit='" + EnergyReactiveExportIntervalUnit + '\'' +
-				", PowerActiveExportUnit='" + PowerActiveExportUnit + '\'' +
-				", PowerReactiveExportUnit='" + PowerReactiveExportUnit + '\'' +
-				", PowerReactiveImportUnit='" + PowerReactiveImportUnit + '\'' +
-				", PowerFactorUnit='" + PowerFactorUnit + '\'' +
-				", CurrentExportUnit='" + CurrentExportUnit + '\'' +
-				", VoltageUnit='" + VoltageUnit + '\'' +
-				", FrequencyUnit='" + FrequencyUnit + '\'' +
-				", TemperatureUnit='" + TemperatureUnit + '\'' +
-				", RPMUnit='" + RPMUnit + '\'' +
-				", EnergyActiveExportRegisterValue='" + EnergyActiveExportRegisterValue + '\'' +
-				", EnergyReactiveExportRegisterValue='" + EnergyReactiveExportRegisterValue + '\'' +
-				", EnergyReactiveImportRegisterValue='" + EnergyReactiveImportRegisterValue + '\'' +
-				", EnergyActiveImportRegisterDiffValue='" + EnergyActiveImportRegisterDiffValue + '\'' +
-				", EnergyActiveExportIntervalValue='" + EnergyActiveExportIntervalValue + '\'' +
-				", EnergyActiveImportIntervalValue='" + EnergyActiveImportIntervalValue + '\'' +
-				", EnergyReactiveExportIntervalValue='" + EnergyReactiveExportIntervalValue + '\'' +
-				", EnergyReactiveImportIntervalValue='" + EnergyReactiveImportIntervalValue + '\'' +
-				", PowerActiveExportValue='" + PowerActiveExportValue + '\'' +
-				", PowerReactiveExportValue='" + PowerReactiveExportValue + '\'' +
-				", PowerReactiveImportValue='" + PowerReactiveImportValue + '\'' +
-				", PowerFactorValue='" + PowerFactorValue + '\'' +
-				", CurrentExportValue='" + CurrentExportValue + '\'' +
-				", VoltageValue='" + VoltageValue + '\'' +
-				", FrequencyValue='" + FrequencyValue + '\'' +
-				", TemperatureValue='" + TemperatureValue + '\'' +
-				", RPMValue='" + RPMValue + '\'' +
-				", energyActiveImportRegisterValueES='" + energyActiveImportRegisterValueES + '\'' +
-				", energyActiveImportRegisterUnitES='" + energyActiveImportRegisterUnitES + '\'' +
-				", powerActiveImportUnitES='" + powerActiveImportUnitES + '\'' +
-				", powerActiveImportValueES='" + powerActiveImportValueES + '\'' +
-				", avg_power='" + avg_power + '\'' +
-				", meterValueTimeStatmp=" + meterValueTimeStatmp +
-				", startTransTimeStamp=" + startTransTimeStamp +
-				", CurrentImportDiffValue='" + CurrentImportDiffValue + '\'' +
-				", PowerActiveImportDiffValue='" + PowerActiveImportDiffValue + '\'' +
-				", SoCDiffValue='" + SoCDiffValue + '\'' +
-				", unqReqId='" + unqReqId + '\'' +
-				", idTag='" + idTag + '\'' +
-				", currencyRate=" + currencyRate +
-				", chargeSessUniqId='" + chargeSessUniqId + '\'' +
-				", chargeSessId=" + chargeSessId +
-				", stnObj=" + stnObj +
-				", siteObj=" + siteObj +
-				", userObj=" + userObj +
-				", stnId=" + stnId +
-				", portId=" + portId +
-				", driverGroupName='" + driverGroupName + '\'' +
-				", driverGroupdId=" + driverGroupdId +
-				", userEmail='" + userEmail + '\'' +
-				", reasonForTermination='" + reasonForTermination + '\'' +
-				", stationMode='" + stationMode + '\'' +
-				", sessionDuration=" + sessionDuration +
-				", totalKwUsed=" + totalKwUsed +
-				", billSessionDuration=" + billSessionDuration +
-				", billTotalKwUsed=" + billTotalKwUsed +
-				", finalCosttostore=" + finalCosttostore +
-				", finalCostInslcCurrency=" + finalCostInslcCurrency +
-				", masterList=" + masterList +
-				", socStartVal=" + socStartVal +
-				", socEndVal=" + socEndVal +
-				", startTxnProgress=" + startTxnProgress +
-				", preProdSess='" + preProdSess + '\'' +
-				", transactionId=" + transactionId +
-				", connectorId=" + connectorId +
-				", settlement='" + settlement + '\'' +
-				", paymentMode='" + paymentMode + '\'' +
-				", stnRefNum='" + stnRefNum + '\'' +
-				", rewardType='" + rewardType + '\'' +
-				", rewardValue=" + rewardValue +
-				", selfCharging=" + selfCharging +
-				", orgId=" + orgId +
-				", site_crncy_char='" + site_crncy_char + '\'' +
-				", site_orgId=" + site_orgId +
-				", txnData=" + txnData +
-				", accTxns=" + accTxns +
-				", paygAccTxns=" + paygAccTxns +
-				", cost_pricings='" + cost_pricings + '\'' +
-				", previousSessionData=" + previousSessionData +
-				", user_crncy_HexCode='" + user_crncy_HexCode + '\'' +
-				", user_crncy_Code='" + user_crncy_Code + '\'' +
-				", user_crncy_Char='" + user_crncy_Char + '\'' +
-				", user_crncy_revenue=" + user_crncy_revenue +
-				", user_orgId=" + user_orgId +
-				", stTxnObj=" + stTxnObj +
-				", sesspricings=" + sesspricings +
-				", request='" + request + '\'' +
-				", response='" + response + '\'' +
-				", idleBilling=" + idleBilling +
-				", needToDebit=" + needToDebit +
-				", stop=" + stop +
-				", currentImportPhase1Value='" + currentImportPhase1Value + '\'' +
-				", currentImportPhase2Value='" + currentImportPhase2Value + '\'' +
-				", currentImportPhase3Value='" + currentImportPhase3Value + '\'' +
-				", voltagePhase1Value='" + voltagePhase1Value + '\'' +
-				", voltagePhase2Value='" + voltagePhase2Value + '\'' +
-				", voltagePhase3Value='" + voltagePhase3Value + '\'' +
-				", ampFlag=" + ampFlag +
-				", session=" + session +
-				", vendingUnit='" + vendingUnit + '\'' +
-				", vendingPrice=" + vendingPrice +
-				", mail=" + mail +
-				", sms=" + sms +
-				", notification=" + notification +
-				", currentScreen=" + currentScreen +
-				", energyModify=" + energyModify +
-				", actualEnergy=" + actualEnergy +
-				'}';
+		return "SessionImportedValues [currentImportContext=" + currentImportContext + ", currentImportFormat="
+				+ currentImportFormat + ", currentImportLocation=" + currentImportLocation + ", currentImportPhase="
+				+ currentImportPhase + ", currentImportUnit=" + currentImportUnit + ", currentImportValue="
+				+ currentImportValue + ", currentImportMeasurand=" + currentImportMeasurand + ", currentOfferedContext="
+				+ currentOfferedContext + ", currentOfferedFormat=" + currentOfferedFormat + ", currentOfferedLocation="
+				+ currentOfferedLocation + ", currentOfferedMeasurand=" + currentOfferedMeasurand
+				+ ", currentOfferedPhase=" + currentOfferedPhase + ", currentOfferedUnit=" + currentOfferedUnit
+				+ ", currentOfferedValue=" + currentOfferedValue + ", energyActiveImportRegisterContext="
+				+ energyActiveImportRegisterContext + ", energyActiveImportRegisterFormat="
+				+ energyActiveImportRegisterFormat + ", energyActiveImportRegisterLocation="
+				+ energyActiveImportRegisterLocation + ", energyActiveImportRegisterMeasurand="
+				+ energyActiveImportRegisterMeasurand + ", energyActiveImportRegisterPhase="
+				+ energyActiveImportRegisterPhase + ", energyActiveImportRegisterUnit=" + energyActiveImportRegisterUnit
+				+ ", energyActiveImportRegisterValue=" + energyActiveImportRegisterValue + ", powerActiveImportContext="
+				+ powerActiveImportContext + ", powerActiveImportFormat=" + powerActiveImportFormat
+				+ ", powerActiveImportLocation=" + powerActiveImportLocation + ", powerActiveImportMeasurand="
+				+ powerActiveImportMeasurand + ", powerActiveImportPhase=" + powerActiveImportPhase
+				+ ", powerActiveImportUnit=" + powerActiveImportUnit + ", powerActiveImportValue="
+				+ powerActiveImportValue + ", powerActiveImportSessionValue=" + powerActiveImportSessionValue
+				+ ", powerOfferedContext=" + powerOfferedContext + ", powerOfferedFormat=" + powerOfferedFormat
+				+ ", powerOfferedLocation=" + powerOfferedLocation + ", powerOfferedMeasurand=" + powerOfferedMeasurand
+				+ ", powerOfferedPhase=" + powerOfferedPhase + ", powerOfferedUnit=" + powerOfferedUnit
+				+ ", powerOfferedValue=" + powerOfferedValue + ", SoCContext=" + SoCContext + ", SoCformat=" + SoCformat
+				+ ", SoClocation=" + SoClocation + ", SoCMeasurand=" + SoCMeasurand + ", SoCPhase=" + SoCPhase
+				+ ", SoCUnit=" + SoCUnit + ", SoCValue=" + SoCValue + ", EnergyActiveExportRegisterUnit="
+				+ EnergyActiveExportRegisterUnit + ", EnergyReactiveImportRegisterUnit="
+				+ EnergyReactiveImportRegisterUnit + ", EnergyActiveExportIntervalUnit="
+				+ EnergyActiveExportIntervalUnit + ", EnergyActiveImportIntervalUnit=" + EnergyActiveImportIntervalUnit
+				+ ", EnergyReactiveImportIntervalUnit=" + EnergyReactiveImportIntervalUnit
+				+ ", EnergyReactiveExportRegisterUnit=" + EnergyReactiveExportRegisterUnit
+				+ ", EnergyReactiveExportIntervalUnit=" + EnergyReactiveExportIntervalUnit + ", PowerActiveExportUnit="
+				+ PowerActiveExportUnit + ", PowerReactiveExportUnit=" + PowerReactiveExportUnit
+				+ ", PowerReactiveImportUnit=" + PowerReactiveImportUnit + ", PowerFactorUnit=" + PowerFactorUnit
+				+ ", CurrentExportUnit=" + CurrentExportUnit + ", VoltageUnit=" + VoltageUnit + ", FrequencyUnit="
+				+ FrequencyUnit + ", TemperatureUnit=" + TemperatureUnit + ", RPMUnit=" + RPMUnit
+				+ ", EnergyActiveExportRegisterValue=" + EnergyActiveExportRegisterValue
+				+ ", EnergyReactiveExportRegisterValue=" + EnergyReactiveExportRegisterValue
+				+ ", EnergyReactiveImportRegisterValue=" + EnergyReactiveImportRegisterValue
+				+ ", EnergyActiveImportRegisterDiffValue=" + EnergyActiveImportRegisterDiffValue
+				+ ", EnergyActiveExportIntervalValue=" + EnergyActiveExportIntervalValue
+				+ ", EnergyActiveImportIntervalValue=" + EnergyActiveImportIntervalValue
+				+ ", EnergyReactiveExportIntervalValue=" + EnergyReactiveExportIntervalValue
+				+ ", EnergyReactiveImportIntervalValue=" + EnergyReactiveImportIntervalValue
+				+ ", PowerActiveExportValue=" + PowerActiveExportValue + ", PowerReactiveExportValue="
+				+ PowerReactiveExportValue + ", PowerReactiveImportValue=" + PowerReactiveImportValue
+				+ ", PowerFactorValue=" + PowerFactorValue + ", CurrentExportValue=" + CurrentExportValue
+				+ ", VoltageValue=" + VoltageValue + ", FrequencyValue=" + FrequencyValue + ", TemperatureValue="
+				+ TemperatureValue + ", RPMValue=" + RPMValue + ", energyActiveImportRegisterValueES="
+				+ energyActiveImportRegisterValueES + ", energyActiveImportRegisterUnitES="
+				+ energyActiveImportRegisterUnitES + ", powerActiveImportUnitES=" + powerActiveImportUnitES
+				+ ", powerActiveImportValueES=" + powerActiveImportValueES + ", avg_power=" + avg_power
+				+ ", meterValueTimeStatmp=" + meterValueTimeStatmp + ", startTransTimeStamp=" + startTransTimeStamp
+				+ ", CurrentImportDiffValue=" + CurrentImportDiffValue + ", PowerActiveImportDiffValue="
+				+ PowerActiveImportDiffValue + ", SoCDiffValue=" + SoCDiffValue + ", unqReqId=" + unqReqId + ", idTag="
+				+ idTag + ", currencyRate=" + currencyRate + ", chargeSessUniqId=" + chargeSessUniqId
+				+ ", chargeSessId=" + chargeSessId + ", stnObj=" + stnObj + ", siteObj=" + siteObj + ", userObj="
+				+ userObj + ", stnId=" + stnId + ", portId=" + portId + ", driverGroupName=" + driverGroupName
+				+ ", driverGroupdId=" + driverGroupdId + ", userEmail=" + userEmail + ", reasonForTermination="
+				+ reasonForTermination + ", stationMode=" + stationMode + ", sessionDuration=" + sessionDuration
+				+ ", totalKwUsed=" + totalKwUsed + ", billSessionDuration=" + billSessionDuration + ", billTotalKwUsed="
+				+ billTotalKwUsed + ", finalCosttostore=" + finalCosttostore + ", finalCostInslcCurrency="
+				+ finalCostInslcCurrency + ", masterList=" + masterList + ", socStartVal=" + socStartVal
+				+ ", socEndVal=" + socEndVal + ", startTxnProgress=" + startTxnProgress + ", preProdSess=" + preProdSess
+				+ ", transactionId=" + transactionId + ", connectorId=" + connectorId + ", settlement=" + settlement
+				+ ", paymentMode=" + paymentMode + ", stnRefNum=" + stnRefNum + ", rewardType=" + rewardType
+				+ ", rewardValue=" + rewardValue + ", selfCharging=" + selfCharging + ", orgId=" + orgId
+				+ ", site_crncy_char=" + site_crncy_char + ", site_orgId=" + site_orgId + ", txnData=" + txnData
+				+ ", accTxns=" + accTxns + ", paygAccTxns=" + paygAccTxns + ", cost_pricings=" + cost_pricings
+				+ ", previousSessionData=" + previousSessionData + ", user_crncy_HexCode=" + user_crncy_HexCode
+				+ ", user_crncy_Code=" + user_crncy_Code + ", user_crncy_Char=" + user_crncy_Char
+				+ ", user_crncy_revenue=" + user_crncy_revenue + ", user_orgId=" + user_orgId + ", stTxnObj=" + stTxnObj
+				+ ", sesspricings=" + sesspricings + ", request=" + request + ", response=" + response
+				+ ", idleBilling=" + idleBilling + ", needToDebit=" + needToDebit + ", stop=" + stop
+				+ ", currentImportPhase1Value=" + currentImportPhase1Value + ", currentImportPhase2Value="
+				+ currentImportPhase2Value + ", currentImportPhase3Value=" + currentImportPhase3Value
+				+ ", voltagePhase1Value=" + voltagePhase1Value + ", voltagePhase2Value=" + voltagePhase2Value
+				+ ", voltagePhase3Value=" + voltagePhase3Value + ", ampFlag=" + ampFlag + ", session=" + session
+				+ ", vendingUnit=" + vendingUnit + ", vendingPrice=" + vendingPrice + ", mail=" + mail + ", sms=" + sms
+				+ ", notification=" + notification + ", currentScreen=" + currentScreen + "]";
 	}
+	
 }

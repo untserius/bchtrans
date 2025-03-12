@@ -146,60 +146,62 @@ public class StatusNotificationServiceImpl implements  StatusNotificationService
 	@SuppressWarnings("unchecked")
 	@Override
 	public void sendNotificationForPortStatus(String message, String NoftyType, String stationRefNum, String notificationId, long stationId, long portId,long siteId,SessionImportedValues siv) {
-		try {
-			Thread thread = new Thread() {
-				public void run() {
-					try {
-						long userId=0;
-						if(siv.getUserObj()!=null && !String.valueOf(siv.getUserObj().get("UserId")).equalsIgnoreCase("null")) {
-							userId=siv.getUserObj().get("UserId").asLong();
-						}
-						List<Map<String, Object>> deviceDetails = ocppDeviceDetailsService.getDeviceDetailsByStation(stationId,userId);
-						List<String> deviceTokens= new JSONArray();
-						List userIds=new ArrayList();
-						if (deviceDetails != null) {
-							Map<String, Object> orgData = configService.configData(1);
-							deviceDetails.forEach(device -> {
-								if (String.valueOf(device.get("deviceType")).equalsIgnoreCase("Android")) {
-									if(!String.valueOf(device.get("deviceToken")).equalsIgnoreCase("")) {
-										deviceTokens.add(String.valueOf(device.get("deviceToken")));
-									}
-									userIds.add(device.get("userId"));
-								}
-								if (String.valueOf(device.get("deviceType")).equalsIgnoreCase("iOS")) {
-//									iOSRecipients.add(String.valueOf(device.get("deviceToken")));
-									userIds.add(device.get("userId"));
-								}
-							});
-							JSONObject info = new JSONObject();
-							JSONObject extra = new JSONObject();
-							extra.put("stationId", String.valueOf(stationId));
-							extra.put("stationName", stationRefNum);
-							extra.put("portId", String.valueOf(portId));
-							extra.put("siteId", String.valueOf(siteId));
-							info.put("sound", "default");
-							info.put("action", NoftyType);
-							info.put("notificationId", notificationId);
-							info.put("extra", String.valueOf(extra));
-							info.put("title", String.valueOf(orgData.get("orgName")));
-							info.put("body", message);
-							info.put("userId","0");
-							if(deviceTokens.size()>0) {
-								pushNotification.sendMulticastMessage(info, deviceTokens,null,0);
+		if (!siv.getStTxnObj().isOfflineFlag()) {
+			try {
+				Thread thread = new Thread() {
+					public void run() {
+						try {
+							long userId = 0;
+							if (siv.getUserObj() != null && !String.valueOf(siv.getUserObj().get("UserId")).equalsIgnoreCase("null")) {
+								userId = siv.getUserObj().get("UserId").asLong();
 							}
+							List<Map<String, Object>> deviceDetails = ocppDeviceDetailsService.getDeviceDetailsByStation(stationId, userId);
+							List<String> deviceTokens = new JSONArray();
+							List userIds = new ArrayList();
+							if (deviceDetails != null) {
+								Map<String, Object> orgData = configService.configData(1);
+								deviceDetails.forEach(device -> {
+									if (String.valueOf(device.get("deviceType")).equalsIgnoreCase("Android")) {
+										if (!String.valueOf(device.get("deviceToken")).equalsIgnoreCase("")) {
+											deviceTokens.add(String.valueOf(device.get("deviceToken")));
+										}
+										userIds.add(device.get("userId"));
+									}
+									if (String.valueOf(device.get("deviceType")).equalsIgnoreCase("iOS")) {
+//									iOSRecipients.add(String.valueOf(device.get("deviceToken")));
+										userIds.add(device.get("userId"));
+									}
+								});
+								JSONObject info = new JSONObject();
+								JSONObject extra = new JSONObject();
+								extra.put("stationId", String.valueOf(stationId));
+								extra.put("stationName", stationRefNum);
+								extra.put("portId", String.valueOf(portId));
+								extra.put("siteId", String.valueOf(siteId));
+								info.put("sound", "default");
+								info.put("action", NoftyType);
+								info.put("notificationId", notificationId);
+								info.put("extra", String.valueOf(extra));
+								info.put("title", String.valueOf(orgData.get("orgName")));
+								info.put("body", message);
+								info.put("userId", "0");
+								if (deviceTokens.size() > 0) {
+									pushNotification.sendMulticastMessage(info, deviceTokens, null, 0);
+								}
+							}
+							if (siv.isCurrentScreen()) {
+								ocppDeviceDetailsService.deleteDeviceDetails(stationId, userId);
+							}
+						} catch (Exception e) {
+							e.printStackTrace();
 						}
-						if(siv.isCurrentScreen()) {
-							ocppDeviceDetailsService.deleteDeviceDetails(stationId,userId);
-						}
-					} catch (Exception e) {
-						e.printStackTrace();
 					}
-				}
-			};
-			//customLogger.info(stationRefNum, "pushnotification is called : " );
-			thread.start();
-		} catch (Exception e) {
-			e.printStackTrace();
+				};
+				//customLogger.info(stationRefNum, "pushnotification is called : " );
+				thread.start();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
 		}
 	}
 	
